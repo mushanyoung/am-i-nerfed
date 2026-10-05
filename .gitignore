@@ -1,0 +1,24 @@
+# Private probe output must never be published.
+/runs/
+/claude-probe*/
+/codex-probe*/
+*.response
+*.jsonl
+*.log
+auth.json
+.env
+.env.*
+.claude/
+.codex/
+*.pem
+*.key
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+.coverage
+htmlcov/
+.DS_Store

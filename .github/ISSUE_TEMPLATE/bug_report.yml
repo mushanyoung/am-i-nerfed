@@ -1,0 +1,57 @@
+name: Bug / 兼容性问题
+description: Report a reproducible discovery, scan, protocol, or reporting problem.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请仅使用合成值与导出的分享摘要。不要上传凭据、账号 ID、原始响应、完整日志或 runs 目录。
+        Use synthetic values and exported summaries. Security issues: see SECURITY.md.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions / 版本
+      description: Am I Nerfed?, Python, relevant Claude Code or Codex version, and OS.
+      placeholder: Am I Nerfed? 0.2.0, Python 3.12, CLI version, macOS or Linux
+    validations:
+      required: true
+  - type: dropdown
+    id: path
+    attributes:
+      label: Path / 路径
+      options:
+        - Model discovery / dry run
+        - Full scan / coverage
+        - Claude loopback capture
+        - Claude direct control
+        - Codex direct HTTP
+        - Codex CLI (--via-codex)
+        - Demo / report exporter
+        - Installation / other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction / 复现步骤
+      description: Minimal command with personal paths and identifiers removed.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and observed / 预期与实际
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Exported summary / 分享摘要
+      description: Optional; generated share.md or am-i-nerfed report output. Preview before posting.
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Privacy / 隐私
+      options:
+        - label: I removed credentials, account identifiers, raw logs, and private prompt or response text.
+          required: true

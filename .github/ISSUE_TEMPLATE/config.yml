@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security / 安全问题
+    url: https://github.com/mushanyoung/am-i-nerfed/blob/main/SECURITY.md
+    about: Report security concerns privately; do not post credentials or raw logs.
+  - name: Evidence limits / 检测边界
+    url: https://github.com/mushanyoung/am-i-nerfed/blob/main/docs/methodology.md
+    about: Understand what a match, change, or unknown result can establish.

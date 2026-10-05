@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc">
+  <title id="title">降智测试 · Am I Nerfed?</title>
+  <desc id="desc">你点的模型，给你了吗？ Trace the model behind the answer. An illustrated receipt connects selected, requested, and reported model metadata. Illustration only, not a measured result.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#111827"/>
+      <stop offset="1" stop-color="#171B3C"/>
+    </linearGradient>
+    <linearGradient id="card" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF2FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="440" rx="24" fill="url(#bg)"/>
+  <circle cx="1080" cy="68" r="200" fill="#6366F1" opacity="0.08"/>
+  <circle cx="968" cy="404" r="142" fill="#6EE7B7" opacity="0.045"/>
+  <path d="M730 0V440M1200 220H730" stroke="#A5B4FC" stroke-opacity="0.07"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans CJK SC', 'PingFang SC', sans-serif">
+    <rect x="58" y="50" width="164" height="28" rx="14" fill="#6366F1" fill-opacity="0.17" stroke="#818CF8" stroke-opacity="0.25"/>
+    <circle cx="75" cy="64" r="4" fill="#6EE7B7"/>
+    <text x="88" y="69" fill="#C7D2FE" font-size="11" font-weight="600" letter-spacing="1.8">MODEL ROUTING</text>
+    <text x="56" y="150" fill="#F8FAFC" font-size="59" font-weight="750" letter-spacing="-1">Am I Nerfed?</text>
+    <text x="60" y="194" fill="#A5B4FC" font-size="24" font-weight="600" letter-spacing="3">降智测试</text>
+    <text x="58" y="261" fill="#F8FAFC" font-size="32" font-weight="650">你点的模型，给你了吗？</text>
+    <text x="60" y="297" fill="#CBD5E1" font-size="20">Trace the model behind the answer.</text>
+    <path d="M60 338H638" stroke="#334155"/>
+    <text x="60" y="369" fill="#94A3B8" font-size="14">Claude Code + Codex</text>
+    <circle cx="248" cy="364" r="2" fill="#475569"/>
+    <text x="264" y="369" fill="#94A3B8" font-size="14">All discovered models</text>
+    <circle cx="440" cy="364" r="2" fill="#475569"/>
+    <text x="456" y="369" fill="#94A3B8" font-size="14">Local reports</text>
+    <g transform="translate(817 49)">
+      <path d="M0 0H207L254 47V330L238 339L222 330L206 339L190 330L174 339L158 330L142 339L126 330L110 339L94 330L78 339L62 330L46 339L30 330L14 339L0 331Z" fill="#060B18" opacity="0.22" transform="translate(10 10)"/>
+      <path d="M0 0H207L254 47V330L238 339L222 330L206 339L190 330L174 339L158 330L142 339L126 330L110 339L94 330L78 339L62 330L46 339L30 330L14 339L0 331Z" fill="url(#card)"/>
+      <path d="M207 0V47H254" fill="#C7D2FE"/>
+      <text x="26" y="42" fill="#6366F1" font-size="12" font-weight="750" letter-spacing="2">ROUTE RECEIPT</text>
+      <path d="M26 66H227" stroke="#CBD5E1" stroke-dasharray="4 5"/>
+      <path d="M38 100V231" stroke="#6366F1" stroke-width="3"/>
+      <circle cx="38" cy="101" r="7" fill="#6366F1"/>
+      <circle cx="38" cy="163" r="7" fill="#6366F1"/>
+      <circle cx="38" cy="225" r="9" fill="#6EE7B7" stroke="#111827" stroke-width="2"/>
+      <text x="60" y="98" fill="#64748B" font-size="10" font-weight="650" letter-spacing="1.5">SELECTED</text>
+      <text x="60" y="119" fill="#111827" font-size="15" font-weight="650">Your choice</text>
+      <text x="60" y="160" fill="#64748B" font-size="10" font-weight="650" letter-spacing="1.5">REQUESTED</text>
+      <text x="60" y="181" fill="#111827" font-size="15" font-weight="650">Client request</text>
+      <text x="60" y="222" fill="#64748B" font-size="10" font-weight="650" letter-spacing="1.5">REPORTED</text>
+      <text x="60" y="243" fill="#111827" font-size="15" font-weight="650">Upstream metadata</text>
+      <path d="M26 271H227" stroke="#CBD5E1" stroke-dasharray="4 5"/>
+      <text x="27" y="301" fill="#64748B" font-size="11">Trace the evidence. Keep the limits.</text>
+    </g>
+  </g>
+</svg>

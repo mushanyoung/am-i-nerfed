@@ -1,0 +1,22 @@
+name: Feature / 功能建议
+description: Suggest an improvement within observable routing and reporting.
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / 要解决的问题
+      description: Describe a concrete workflow or missing evidence, without private account data.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior / 建议行为
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or reference / 依据
+      description: Optional official documentation or a synthetic protocol example.

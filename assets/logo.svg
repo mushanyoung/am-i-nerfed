@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Am I Nerfed? logo</title>
+  <desc id="desc">An indigo receipt with three connected mint dots representing selection, request, and response.</desc>
+  <rect width="256" height="256" rx="58" fill="#111827"/>
+  <path d="M72 42H158L190 74V215L174 205L158 215L142 205L126 215L110 205L94 215L72 203Z" fill="#6366F1"/>
+  <path d="M158 42V74H190" fill="#A5B4FC"/>
+  <path d="M97 93H140M97 111H160" stroke="#E0E7FF" stroke-width="8" stroke-linecap="round"/>
+  <path d="M99 169L130 145L163 168" fill="none" stroke="#6EE7B7" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="99" cy="169" r="8" fill="#6EE7B7"/>
+  <circle cx="130" cy="145" r="8" fill="#6EE7B7"/>
+  <circle cx="163" cy="168" r="8" fill="#6EE7B7"/>
+</svg>
