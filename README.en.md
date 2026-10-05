@@ -10,17 +10,49 @@
 
 One command scans installed Claude Code and Codex clients and probes every discoverable model. Compare requested and reported model identifiers, inspect aliases and visible fallback, and assess reasoning effort separately. Results stay local, with summaries for sharing.
 
+With Python 3.9+ and official clients already signed in to your subscription, run directly—no pip, git, or virtual environment required:
+
 ```bash
-am-i-nerfed
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 -
 ```
 
-Live probes use existing **subscription sign-in** and consume the relevant allowance. All discovered models are included by default. To inspect the inventory first, run `am-i-nerfed models` or `am-i-nerfed --dry-run`.
+Live probes use existing **subscription sign-in** and consume the relevant allowance. All discovered models are included by default. Add `--dry-run` to preview the plan without inference requests.
 
 The result is observable routing evidence for those requests. Matching identifiers do not attest to backend weights, rule out hidden account flags, or measure intelligence. Differences need interpretation: aliases, configuration, and fallback all matter.
 
-## Install
+## Run directly
 
-Requires Python 3.9+; runtime dependencies are limited to the standard library. Install the official Claude Code / Codex CLI and sign in with a subscription first. For Codex, use `codex login` and sign in with ChatGPT. API key access is a distinct authentication path. [Official OpenAI authentication docs](https://learn.chatgpt.com/docs/auth)
+Pass arguments after `python3 -`; they are identical to the installed command's arguments:
+
+```bash
+# Probe only Claude Code
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 - --tool claude
+
+# Discover clients and models without inference requests
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 - --dry-run
+
+# Synthetic demo; no login or network needed after the download
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 - demo
+```
+
+Or save the file to run it again later:
+
+```bash
+curl -fL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py -o am-i-nerfed.py
+python3 am-i-nerfed.py
+```
+
+An existing checkout can run `python3 am-i-nerfed.py` from its root without installation. The standalone file embeds the project's release code and downloads no additional project code at runtime. It loads from a private temporary ZIP, which is cleaned up on exit. Reports remain under `runs/` in your current working directory, or your chosen `--out` path.
+
+Examples below use `am-i-nerfed`. For the standalone file, substitute `python3 am-i-nerfed.py`; for a pipe, append the same arguments after `python3 -`.
+
+Sign in through the official CLI first. For Codex, use `codex login` and sign in with ChatGPT. API key access is a distinct authentication path. [Official OpenAI authentication docs](https://learn.chatgpt.com/docs/auth)
+
+Intended for macOS / Linux. The Claude probe does not support native Windows; use WSL. Native Windows Codex paths are unverified. Python runtime dependencies are limited to the standard library.
+
+## Optional: install a persistent command
+
+Install the Python package if you want an `am-i-nerfed` command in your terminal:
 
 ```bash
 python3 -m venv .venv
@@ -30,7 +62,7 @@ python -m pip install 'git+https://github.com/mushanyoung/am-i-nerfed.git'
 am-i-nerfed
 ```
 
-Intended for macOS / Linux. The Claude probe does not support native Windows; use WSL. Native Windows Codex paths are unverified. Install from GitHub or a local checkout; no PyPI publication is implied.
+Package installation uses GitHub or a local checkout; no PyPI publication is implied.
 
 ## Scan and select scope
 
@@ -147,8 +179,11 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 python -m unittest discover -s tests -v
+python3 scripts/build_standalone.py --check
 ```
 
 Automated tests need no external network or account credentials; some start loopback servers. Live subscription checks run separately. Reproducible catalog, protocol, and reporting issues are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+After source changes, run `python3 scripts/build_standalone.py` to update the generated root file, then use `--check` to confirm it is current. Do not edit only the generated file.
 
 Independent community project, not affiliated with or endorsed by Anthropic or OpenAI. [MIT License](LICENSE).

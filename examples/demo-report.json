@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "tool": "Am I Nerfed?",
-  "tool_version": "0.2.0",
+  "tool_version": "0.3.0",
   "synthetic": true,
   "records": [
     {

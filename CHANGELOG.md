@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0
+
+- Add a generated `am-i-nerfed.py` entry point that runs with Python 3.9+ without pip, git, a virtual environment, or package installation.
+- Support direct piping into `python3 -`, downloading the file for reuse, and running it from a checkout. All paths accept the same CLI arguments and default to the full scan.
+- Embed release code in the standalone file. Load it from a private temporary ZIP and clean it up on exit, without downloading additional project code at runtime.
+- Preserve reports in the caller's current working directory under `runs/`, or the selected `--out` path.
+- Add `scripts/build_standalone.py` and `--check` for keeping the generated entry point synchronized with source.
+- Make the standalone quick start the primary documentation path while retaining optional package installation for a persistent `am-i-nerfed` command.
+
+Live probes still require the relevant official client and subscription sign-in, and consume the subscription allowance. The synthetic demo requires neither credentials nor inference requests.
+
 ## 0.2.0
 
 Public release of **Am I Nerfed? · 降智测试** under the `am-i-nerfed` package and command.

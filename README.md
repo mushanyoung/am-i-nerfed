@@ -10,17 +10,49 @@
 
 一条命令扫描本机已安装的 Claude Code 和 Codex，检测客户端可发现的全部模型。对照请求与上游模型标识，记录别名、可见 fallback 和 reasoning effort，生成本地报告与可分享摘要。
 
+准备好 Python 3.9+ 和已通过订阅登录的官方 CLI，即可直接运行，无需 pip、git 或虚拟环境：
+
 ```bash
-am-i-nerfed
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 -
 ```
 
-检测使用已有的**订阅登录**，真实请求会消耗相应服务的额度。默认覆盖所有发现的模型；要先看清单，用 `am-i-nerfed models` 或 `am-i-nerfed --dry-run`。
+检测使用已有的**订阅登录**，真实请求会消耗相应服务的额度。默认覆盖所有发现的模型；加 `--dry-run` 可先看计划，不发送推理请求。
 
 结果是本次请求的**可观察路由证据**。一致只表示可见模型标识一致，不能证明后台权重、排除隐藏账号标记或衡量模型智力。差异也需要区分别名、配置与 fallback。
 
-## 安装
+## 快速运行
 
-需要 Python 3.9+，运行时仅使用标准库。先安装官方 Claude Code / Codex CLI，并通过订阅账号登录。Codex 使用 `codex login` 选择 ChatGPT 登录；API key 是另一种认证路径。[OpenAI 官方认证说明](https://learn.chatgpt.com/docs/auth)
+参数放在 `python3 -` 后面；与安装版的命令参数完全相同：
+
+```bash
+# 只检测 Claude Code
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 - --tool claude
+
+# 发现工具与模型，展示计划，不发送推理请求
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 - --dry-run
+
+# 合成演示；下载完成后无需登录或网络
+curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 - demo
+```
+
+也可以保存文件，之后反复运行：
+
+```bash
+curl -fL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py -o am-i-nerfed.py
+python3 am-i-nerfed.py
+```
+
+已有仓库 checkout 时，直接在根目录运行 `python3 am-i-nerfed.py` 即可。单文件内嵌发布所需的项目代码，运行时不会再下载项目代码；从私有临时 ZIP 加载并在退出时清理。报告仍保留在当前工作目录的 `runs/`，或你指定的 `--out` 路径中。
+
+下文以 `am-i-nerfed` 展示参数；单文件用户将它替换为 `python3 am-i-nerfed.py`，管道用户将参数接在 `python3 -` 后。
+
+先通过官方 CLI 完成订阅登录。Codex 使用 `codex login` 选择 ChatGPT 登录；API key 是另一种认证路径。[OpenAI 官方认证说明](https://learn.chatgpt.com/docs/auth)
+
+面向 macOS / Linux；Claude 探针不支持原生 Windows，可在 WSL 中使用。Codex 原生 Windows 路径尚未验证。Python 运行时仅使用标准库。
+
+## 可选：安装持久命令
+
+需要在终端直接使用 `am-i-nerfed` 命令时，再安装 Python 包：
 
 ```bash
 python3 -m venv .venv
@@ -30,7 +62,7 @@ python -m pip install 'git+https://github.com/mushanyoung/am-i-nerfed.git'
 am-i-nerfed
 ```
 
-面向 macOS / Linux；Claude 探针不支持原生 Windows，可在 WSL 中使用。Codex 原生 Windows 路径尚未验证。安装来源是 GitHub 或本地 checkout，不要求 PyPI 上存在同名包。
+包安装来源是 GitHub 或本地 checkout，不要求 PyPI 上存在同名包。
 
 ## 全量扫描与范围选择
 
@@ -147,8 +179,11 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 python -m unittest discover -s tests -v
+python3 scripts/build_standalone.py --check
 ```
 
 自动化测试不需要外网或账号凭据；部分测试启动本机回环服务。真实订阅检测单独运行。欢迎提供可复现的目录发现、协议解析或报告问题，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+修改源代码后，运行 `python3 scripts/build_standalone.py` 更新生成的根目录单文件，再用 `--check` 确认同步；不要只修改生成文件。
 
 独立社区项目，与 Anthropic、OpenAI 无隶属或背书关系。[MIT License](LICENSE)。

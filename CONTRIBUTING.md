@@ -13,9 +13,24 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 python -m unittest discover -s tests -v
 am-i-nerfed demo
+python3 scripts/build_standalone.py --check
 ```
 
 Python 3.9+；运行时保持标准库依赖。测试使用合成响应，不访问外网或读取账号凭据；允许启动本机回环 HTTP 服务验证传输行为。真实订阅测试会消耗额度，不放入公共 CI，也不要求贡献者提供登录凭据。
+
+## 单文件入口
+
+根目录 `am-i-nerfed.py` 是生成的发布入口，内嵌项目源代码，支持直接下载、checkout 运行和 `curl ... | python3 -`。它与安装版使用相同参数，不需要在运行时另外下载项目代码。
+
+修改 `src/` 中的实现后，同时更新生成文件并检查一致性：
+
+```bash
+python3 scripts/build_standalone.py
+python3 scripts/build_standalone.py --check
+python3 am-i-nerfed.py demo
+```
+
+不要只修改生成文件；修改源代码或构建脚本后重新生成。运行 `--check` 只验证是否同步，不替代协议与报告测试。单文件执行会清理私有临时 ZIP，报告仍写入调用者的当前工作目录。
 
 ## 提交问题
 
@@ -41,3 +56,5 @@ PR 说明写清具体问题、改后行为和验证方式。无需先开 issue �
 Use synthetic, minimal fixtures and tests without external network or account credentials; loopback HTTP tests are allowed. Keep selection, request, and reported model evidence distinct; retain unknown when evidence is incomplete. Assess effort independently. Never commit credentials, private run reports, or real prompt / response content. Document behavior changes in both READMEs and the changelog. Security issues follow [SECURITY.md](SECURITY.md).
 
 Default scans cover all discovered candidates. Discovery and inference failures must remain visible. Model catalog fixtures should exercise duplicate entries, hidden models, fallback sources, and unavailable tools without relying on real account data.
+
+The root `am-i-nerfed.py` is a generated standalone release. After source changes, run `python3 scripts/build_standalone.py`, commit the regenerated file with the source change, and verify it with `python3 scripts/build_standalone.py --check`. A local `python3 am-i-nerfed.py demo` exercises the standalone path without inference. Do not maintain separate behavior by editing only the generated file.
