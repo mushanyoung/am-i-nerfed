@@ -13,6 +13,7 @@ LIMITATION = (
 ROUTE_STATES = {"MATCH", "CHANGED", "UNKNOWN"}
 EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"}
 EFFORT_STATES = {"MATCH", "CHANGED", "NOT_REPORTED", "NOT_REQUESTED"}
+BACKENDS = {"claude-proxy", "claude-direct", "codex-cli", "codex-http"}
 
 
 def label(value):
@@ -58,7 +59,8 @@ def same_model(requested, reported):
 
 def row(provider, requested, wire, reported, route, effort_req=None,
         effort_reported=None, evidence="unknown", complete=False,
-        wire_effort=None, reported_efforts=None, wire_efforts=None):
+        wire_effort=None, reported_efforts=None, wire_efforts=None, backend=None):
+    provider = provider if provider in ("claude", "codex") else "unknown"
     effort_req, effort_reported = effort_value(effort_req), effort_value(effort_reported)
     wire_effort = effort_value(wire_effort)
     observed_efforts = list(dict.fromkeys(e for e in (reported_efforts or [])
@@ -72,8 +74,14 @@ def row(provider, requested, wire, reported, route, effort_req=None,
     if effort_req and (any(e != effort_req for e in sent_efforts)
                        or any(e != effort_req for e in observed_efforts)):
         e_status = "CHANGED"
+    inferred_backend = {("claude", "upstream-http"): "claude-proxy",
+                        ("claude", "cli-response"): "claude-direct",
+                        ("codex", "upstream-http"): "codex-http",
+                        ("codex", "cli-trace"): "codex-cli"}.get((provider, evidence if isinstance(evidence, str) else "unknown"))
+    backend = inferred_backend or (backend if isinstance(backend, str) and backend in BACKENDS and backend.startswith(provider + "-") else "unknown")
     return {
         "provider": provider if provider in ("claude", "codex") else "unknown",
+        "backend": backend,
         "requested_model": label(requested), "wire_models": labels(wire),
         "reported_models": labels(reported),
         "route_status": route if route in ROUTE_STATES else "UNKNOWN",
@@ -111,6 +119,7 @@ def _claude_rows(data):
         if control:
             control_cli = control.get("cli", {})
             r["direct_control"] = {
+                "route_status": {"DIRECT_METADATA_MATCH": "MATCH", "DIRECT_METADATA_DIFFERENT": "CHANGED"}.get(control.get("verdict"), "UNKNOWN"),
                 "reported_models": labels(control_cli.get("assistant_models", [])),
                 "agrees": result.get("direct_control_agrees") is True,
                 "complete": (control_cli.get("result_is_error") is False and control.get("cli_exit_code") == 0
@@ -154,7 +163,8 @@ def sanitize_public(data):
                 original.get("wire_models", []), original.get("reported_models", []),
                 original.get("route_status"), original.get("requested_effort"),
                 original.get("reported_effort"), original.get("evidence"), original.get("complete"),
-                original.get("wire_effort"), original.get("reported_efforts"), original.get("wire_efforts"))
+                original.get("wire_effort"), original.get("reported_efforts"), original.get("wire_efforts"),
+                original.get("backend"))
         if not r["complete"] and r["route_status"] == "MATCH":
             r["route_status"] = "UNKNOWN"
         if not r["reported_models"] and r["route_status"] == "MATCH":
@@ -171,6 +181,8 @@ def sanitize_public(data):
             control_models = labels(control.get("reported_models", []))
             control_complete = control.get("complete") is True and bool(control_models) and "[redacted]" not in control_models
             r["direct_control"] = {
+                "backend": "claude-direct",
+                "route_status": control.get("route_status") if control_complete and control.get("route_status") in ROUTE_STATES else "UNKNOWN",
                 "reported_models": control_models,
                 "agrees": (control_complete and control.get("agrees") is True
                            and set(control_models) == set(r["reported_models"])),
@@ -242,10 +254,10 @@ def markdown(data):
                    c["planned_probes"] if c["planned_probes"] is not None else "unknown",
                    c["discovery_failures"] if c["discovery_failures"] is not None else "unknown",
                    c["unsuccessful_runs"] if c["unsuccessful_runs"] is not None else "unknown"), ""]
-    lines += ["| Provider | Selected | Wire request | Reported model | Route | Effort | Direct CLI control |",
+    lines += ["| Backend | Selected | Wire request | Reported model | Route | Effort | Claude direct control |",
               "|---|---|---|---|---|---|---|"]
     for r in data["records"]:
-        cols = [r["provider"], r["requested_model"], ", ".join(r["wire_models"]) or "not observed",
+        cols = [r["backend"], r["requested_model"], ", ".join(r["wire_models"]) or "not observed",
                 ", ".join(r["reported_models"]) or "not reported", r["route_status"], r["effort_status"], control_label(r)]
         lines.append("| " + " | ".join(cols) + " |")
     lines += ["", "MATCH: observed model identifiers agree. CHANGED: an observable routing difference.",
@@ -259,7 +271,10 @@ def control_label(record):
     control = record.get("direct_control")
     if not control:
         return "not run"
-    status = "UNKNOWN" if not control.get("complete") else ("AGREES" if control.get("agrees") else "DIFFERS")
+    comparable = control.get("complete") and record.get("complete") and bool(record.get("reported_models"))
+    status = "UNKNOWN" if not comparable else ("AGREES" if control.get("agrees") else "DIFFERS")
+    if control.get("complete") and control.get("route_status") == "CHANGED":
+        status = "CHANGED"
     return status + ": " + (", ".join(control.get("reported_models", [])) or "not reported")
 
 
@@ -288,7 +303,7 @@ def svg(data):
         selected = r["requested_model"][:48]
         served = ", ".join(r["reported_models"])[:64] or "not reported"
         parts += [f'<rect x="36" y="{y-20}" width="1128" height="{row_height-10}" rx="8" fill="#1c2134"/>',
-                  f'<text x="54" y="{y+5}" fill="#a5aec5" font-size="15">{e(r["provider"].upper())} / {e(selected)}</text>',
+                  f'<text x="54" y="{y+5}" fill="#a5aec5" font-size="15">{e(r["backend"].upper())} / {e(selected)}</text>',
                   f'<text x="54" y="{y+35}" fill="#f4f5fa" font-size="20">{e(served)}</text>',
                   f'<text x="1126" y="{y+5}" text-anchor="end" fill="{color}" font-size="21">{r["route_status"]}</text>',
                   f'<text x="1126" y="{y+34}" text-anchor="end" fill="#a5aec5" font-size="14">effort: {r["effort_status"]}</text>']
@@ -313,7 +328,7 @@ def render(data, format_name):
 
 def demo():
     return sanitize_public({"synthetic": True, "records": [
-        row("claude", "sonnet", ["claude-sonnet-example"], ["claude-sonnet-example"], "MATCH", "medium", evidence="synthetic", complete=True),
-        row("codex", "gpt-example-large", ["gpt-example-large"], ["gpt-example-small"], "CHANGED", "high", "high", "synthetic", True),
-        row("codex", "gpt-example", ["gpt-example"], [], "UNKNOWN", "low", evidence="synthetic"),
+        row("claude", "sonnet", ["claude-sonnet-example"], ["claude-sonnet-example"], "MATCH", "medium", evidence="synthetic", complete=True, backend="claude-proxy"),
+        row("codex", "gpt-example-large", ["gpt-example-large"], ["gpt-example-small"], "CHANGED", "high", "high", "synthetic", True, backend="codex-cli"),
+        row("codex", "gpt-example", ["gpt-example"], [], "UNKNOWN", "low", evidence="synthetic", backend="codex-http"),
     ]})

@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/banner.svg" alt="降智测试 · Am I Nerfed? — 你点的模型，给你了吗？" width="960"></p>
+<p align="center"><img src="docs/banner.svg" alt="降智测试 · Am I Nerfed? — 你点的模型，给你了吗？" width="960"></p>
 
 <p align="center"><a href="README.en.md">English</a> · <a href="docs/methodology.md">检测原理</a> · <a href="CONTRIBUTING.md">参与贡献</a> · <a href="LICENSE">MIT</a></p>
 
@@ -16,7 +16,7 @@
 curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 -
 ```
 
-检测使用已有的**订阅登录**，真实请求会消耗相应服务的额度。默认覆盖所有发现的模型；加 `--dry-run` 可先看计划，不发送推理请求。
+检测使用已有的**订阅登录**，真实请求会消耗相应服务的额度。默认覆盖所有发现的模型与现有订阅检测路径：Claude 代理采集 + 直连对照，Codex CLI + HTTP。加 `--dry-run` 可先看计划，不发送推理请求。
 
 结果是本次请求的**可观察路由证据**。一致只表示可见模型标识一致，不能证明后台权重、排除隐藏账号标记或衡量模型智力。差异也需要区分别名、配置与 fallback。
 
@@ -42,7 +42,7 @@ curl -fL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-ner
 python3 am-i-nerfed.py
 ```
 
-已有仓库 checkout 时，直接在根目录运行 `python3 am-i-nerfed.py` 即可。单文件内嵌发布所需的项目代码，运行时不会再下载项目代码；从私有临时 ZIP 加载并在退出时清理。报告仍保留在当前工作目录的 `runs/`，或你指定的 `--out` 路径中。
+已有仓库 checkout 时，直接在根目录运行 `python3 am-i-nerfed.py` 即可。单文件内嵌发布所需的项目代码，运行时不会再下载项目代码；从私有临时 ZIP 加载并在退出时清理。所有探针入口在 Linux 上默认把报告存到 `~/.am-i-nerfed/<run>/`，其他平台存到当前工作目录的 `runs/<run>/`；显式 `--out` 始终优先。
 
 下文以 `am-i-nerfed` 展示参数；单文件用户将它替换为 `python3 am-i-nerfed.py`，管道用户将参数接在 `python3 -` 后。
 
@@ -68,7 +68,7 @@ am-i-nerfed
 
 裸命令和 `am-i-nerfed scan` 等价。它们发现已安装工具，从客户端模型目录读取候选项，并逐一检测；一个工具或模型失败时，继续其余项，在结果中保留失败。
 
-扫描默认通过真实客户端采集：Claude 经本机代理观察，Codex 使用 CLI 路径。需要 Codex HTTP 对照时显式设置 `--codex-transport http`。
+扫描默认检测两组现有订阅路径：Claude 启动真实客户端，经本机代理采集，再运行绕过代理的直连对照；Codex 对每个模型分别使用真实 CLI 和订阅 HTTP。报告区分 backend，单条路径成功不会替其他路径下结论。这里的“全部路径”只指这几条已实现路径，不扩展到 Bedrock、Vertex 或 API key。
 
 ```bash
 # 查看工具与模型来源，不发送推理请求
@@ -77,6 +77,12 @@ am-i-nerfed scan --dry-run
 
 # 只扫描一个工具；--tool 可重复
 am-i-nerfed scan --tool claude
+
+# 只跑 Codex CLI；默认 both 也会跑 HTTP
+am-i-nerfed scan --tool codex --codex-transport cli
+
+# 关闭 Claude 直连对照，只保留代理采集
+am-i-nerfed scan --tool claude --no-direct-control
 
 # 明确选择模型；MODEL 替换为 models 列出的 Codex ID
 am-i-nerfed scan --model claude:opus --model codex:MODEL
@@ -96,11 +102,15 @@ am-i-nerfed scan --tool codex --repeat 2 --effort high --timeout 120 --out runs/
 | `--discovery-timeout 30` | 设置目录发现超时，默认 30 秒 |
 | `--timeout 120` | 设置单次检测超时，默认 120 秒 |
 | `--effort LEVEL` | 统一覆盖目标模型的 effort；默认 Codex 使用每模型目录默认值或支持的低强度，Claude 保留客户端默认值 |
-| `--direct-control` | 为 Claude 增加绕过代理的 CLI 对照 |
+| `--codex-transport both\|cli\|http` | Codex 检测路径，默认 `both`，两条路径分别记录 |
+| `--no-direct-control` | 关闭扫描默认开启的 Claude 直连对照；`--direct-control` 仍兼容 |
 | `--ignore-alias-overrides` | 在 Claude 子进程中移除家族别名覆盖 |
 | `--save-raw` | 为 Claude 显式保存原始响应；文件应留在本地 |
+| `-v` / `--verbose` | 显示详细诊断；默认终端只显示简洁结果 |
 
 `models` 同样支持 `--tool`、`--include-hidden` 和 `--discovery-timeout`。
+
+终端支持时自动着色；设置 `NO_COLOR=1` 可禁用颜色。需要排查目录或请求细节时再加 `--verbose`，例如 `am-i-nerfed --verbose`。
 
 “全部”指**本次客户端可发现、向用户提供的模型集合**，不代表服务端全部历史 ID，也不保证目录中的每个模型此刻都可调用。认证、客户端版本、缓存和账号权限会影响发现结果。显式选中的工具未安装、发现失败、目录回退或调用失败都会显示出来；不会因为某项失败就把它算作通过。`models` / `--dry-run` 不发推理请求，但发现过程可能需要启动官方客户端或读取目录。
 
@@ -132,15 +142,15 @@ Codex 默认 HTTP 路径复用文件中的订阅凭据，观察响应头与流�
 
 共享摘要的 `route_status` 为 `MATCH` / `CHANGED` / `UNKNOWN`；`effort_status` 为 `MATCH` / `CHANGED` / `NOT_REPORTED` / `NOT_REQUESTED`。模型与 effort 分开判断。缺字段、流未完成或证据冲突不会被当成匹配；`CHANGED` 表示观察到差异，不是能力评分。
 
-Claude 直连对照另列 `AGREES` / `DIFFERS` / `UNKNOWN`。Codex 即使模型一致，缺少所请求的 effort 返回值也可能给出非零退出码。一次短请求只覆盖该请求、该时间、该路径；全量扫描仍然不能代表长会话或整个订阅期。[检测原理](docs/methodology.md)
+Claude 直连对照另列 `AGREES` / `DIFFERS` / `UNKNOWN`；直连客户端自身发生模型路由变化时单独标记 `CHANGED`，即使两条路径最终返回相同模型。Codex 即使模型一致，缺少所请求的 effort 返回值也可能给出非零退出码。一次短请求只覆盖该请求、该时间、该路径；全量扫描仍然不能代表长会话或整个订阅期。[检测原理](docs/methodology.md)
 
-覆盖范围中的 `complete` 表示所计划检测具有完整证据，包括显式请求的直连对照；完整证据仍可能显示 `CHANGED`。覆盖完整与模型匹配是两个判断。
+覆盖范围中的 `complete` 表示所计划模型和 backend 具有完整证据，包括启用的直连对照；完整证据仍可能显示 `CHANGED`。覆盖完整与模型匹配是两个判断。
 
 ## 报告与离线演示
 
-检测结果保存在输出目录；分享时使用生成的 `share.md` / `share.json`，或重新导出允许字段摘要。公开摘要排除账号、request ID、提示词、生成正文和原始错误，发布前仍应预览。
+检测结果默认在 Linux 的 `~/.am-i-nerfed/<run>/` 或其他平台的 `runs/<run>/`；`--out` 可指定位置。分享时使用生成的 `share.md` / `share.json`，或重新导出允许字段摘要。公开摘要保留 backend，排除账号、request ID、提示词、生成正文和原始错误，发布前仍应预览。
 
-扫描目录包含 `inventory.json`（本地目录来源、客户端路径与警告）、`report.json`（汇总记录与覆盖范围）、`share.json` / `share.md`，以及 `probes/PROVIDER-NNN/` 下的逐模型诊断报告。清单和逐模型原始报告应保持私有；共享摘要仍保留扫描覆盖范围，避免把部分成功误读成全量成功。
+扫描目录包含 `inventory.json`（本地目录来源、客户端路径与警告）、`report.json`（汇总记录与覆盖范围）、`share.json` / `share.md`，以及 `probes/` 下的逐模型、逐路径诊断报告。清单和原始诊断报告应保持私有；共享摘要仍保留扫描覆盖范围，避免把部分成功误读成全量成功。
 
 ```bash
 am-i-nerfed report runs/check/report.json --format markdown --output scan-summary.md
@@ -153,9 +163,9 @@ am-i-nerfed demo
 am-i-nerfed demo --format svg --output demo.svg
 ```
 
-[查看合成示例卡](examples/demo-card.svg) · [查看示例摘要](examples/demo-report.md)
+[查看合成示例卡](docs/demo.svg)
 
-完整诊断报告应留在本地。Claude 的 `--save-raw` 可显式保留原始响应，可能包含敏感内容；不要上传整个 `runs/`、凭据或 CLI 日志。项目不采集遥测，也不自动上传结果。[SECURITY.md](SECURITY.md)
+完整诊断报告应留在本地。Claude 的 `--save-raw` 可显式保留原始响应，可能包含敏感内容；不要上传整个 `~/.am-i-nerfed/`、`runs/`、凭据或 CLI 日志。项目不采集遥测，也不自动上传结果。[SECURITY.md](SECURITY.md)
 
 ## 常见问题
 
@@ -179,11 +189,11 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 python -m unittest discover -s tests -v
-python3 scripts/build_standalone.py --check
+python3 build_standalone.py --check
 ```
 
 自动化测试不需要外网或账号凭据；部分测试启动本机回环服务。真实订阅检测单独运行。欢迎提供可复现的目录发现、协议解析或报告问题，见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-修改源代码后，运行 `python3 scripts/build_standalone.py` 更新生成的根目录单文件，再用 `--check` 确认同步；不要只修改生成文件。
+修改源代码后，运行 `python3 build_standalone.py` 更新生成的根目录单文件，再用 `--check` 确认同步；不要只修改生成文件。
 
 独立社区项目，与 Anthropic、OpenAI 无隶属或背书关系。[MIT License](LICENSE)。

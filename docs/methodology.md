@@ -17,11 +17,13 @@ Am I Nerfed? 的测量对象是客户端和服务端**公开在本次协议交�
 
 扫描分别记录发现和测量。显式选中但未安装的工具、发现失败、目录回退、模型不可用与请求失败不应被隐藏，也不能当作匹配。某项失败后继续检查其余候选，整体结果保留未完成项。通过 `--tool`、`--model PROVIDER:MODEL` 和 `--exclude-model PROVIDER:MODEL` 可以明确收窄范围；范围变化必须与结果一起解释。
 
-全量扫描表示更广的模型目录覆盖，不代表更多提示词类型、长上下文或整个订阅周期的覆盖。每个模型仍只接受设定次数的简短探针。扫描默认通过真实客户端检测：Claude 经由本机捕获代理，Codex 使用 CLI 路径。`--codex-transport http` 显式选择 Codex 内部 HTTP 接口。
+全量扫描表示更广的模型目录覆盖，不代表更多提示词类型、长上下文或整个订阅周期的覆盖。每个模型仍只接受设定次数的简短探针。扫描默认验证 Claude 代理采集与直连对照，以及 Codex CLI 与内部 HTTP 两条路径。不同 backend 在报告中区分，不能用某条路径的成功替另一条缺失证据下结论。
 
-扫描保存本地 `inventory.json`、汇总 `report.json`、可分享的 `share.json` / `share.md`，以及 `probes/PROVIDER-NNN/` 下的逐模型诊断报告。模型覆盖范围与单条请求的模型匹配是不同维度；不要从部分成功记录推断整份扫描已完成。
+`--codex-transport both|cli|http` 默认 `both`；`--no-direct-control` 可关闭扫描默认开启的 Claude 直连对照，`--direct-control` 保持兼容。这些 backend 仅指已实现的订阅访问路径，不包括 Bedrock、Vertex 或 API key 认证。
 
-`coverage.complete` 描述所计划检测的证据是否完整，也要求显式请求的直连对照完整。证据完整不等于模型一致：一条明确观察到差异的记录可以具有完整证据，但仍使整次扫描返回非零状态。`--model` 将计划限定为指定项；排除规则按发现出的 ID 精确匹配。
+扫描保存本地 `inventory.json`、汇总 `report.json`、可分享的 `share.json` / `share.md`，以及 `probes/` 下的逐模型、逐 backend 诊断报告。模型与路径覆盖范围、单条请求的模型匹配是不同维度；不要从部分成功记录推断整份扫描已完成。
+
+`coverage.complete` 描述所计划模型与 backend 的证据是否完整，也要求已启用的直连对照完整。证据完整不等于模型一致：一条明确观察到差异的记录可以具有完整证据，但仍使整次扫描返回非零状态。`--model` 将计划限定为指定项；排除规则按发现出的 ID 精确匹配。
 
 ## 四层证据
 
@@ -49,11 +51,11 @@ flowchart LR
 
 解析响应时需要覆盖整个流。Anthropic 文档说明，流中途发生 fallback 时，开始事件仍可能写着初始模型；后续 fallback 目标和最终迭代记录才能反映切换。因此只看到开始事件不足以证明整个响应由同一模型完成。[官方 streaming fallback 说明](https://platform.claude.com/docs/en/build-with-claude/refusals-and-fallback#streaming)
 
-`--direct-control` 对照运行绕过本地代理的真实客户端。它有助于比较代理是否影响客户端结果，但该运行只提供客户端可见元数据。不能把对照结果描述成“捕获了直连上游原始响应”。
+直连对照运行绕过本地代理的真实客户端，在全量扫描中默认开启；提供方子命令 `claude` 仍通过 `--direct-control` 显式开启。它有助于比较代理是否影响客户端结果，但该运行只提供客户端可见元数据。不能把对照结果描述成“捕获了直连上游原始响应”。
 
 ## Codex 路径
 
-直接 HTTP 路径使用本地 Codex 订阅凭据发起短请求，观察 `openai-model` 等元数据以及 `response.created` / `response.completed` 中的模型。完成事件、错误事件和字段冲突都参与解释。内部后端接口并无本项目可承诺的兼容性；变更需要更新解析器。提供方子命令 `codex` 默认使用此路径；全量 `scan` 默认使用 CLI。
+直接 HTTP 路径使用本地 Codex 订阅凭据发起短请求，观察 `openai-model` 等元数据以及 `response.created` / `response.completed` 中的模型。完成事件、错误事件和字段冲突都参与解释。内部后端接口并无本项目可承诺的兼容性；变更需要更新解析器。提供方子命令 `codex` 默认使用此路径；全量 `scan` 默认同时使用 CLI 与 HTTP。
 
 `--via-codex` 运行真实 `codex exec`，从客户端输出中读取可见事件。它与直接 HTTP 的系统上下文、传输、客户端默认值可能不同。对照一致是额外证据，不能证明两条路径完全等价。
 
@@ -82,14 +84,20 @@ flowchart LR
 
 ## 数据边界
 
+所有探针入口在 Linux 默认写入 `~/.am-i-nerfed/<run>/`，其他平台默认写入当前工作目录 `runs/<run>/`。显式 `--out` 优先，单文件临时 ZIP 的清理不影响这些报告。
+
 本地诊断报告可能包含请求标识、环境信息、服务元数据或错误；原始响应和日志可能带有更多内容。共享摘要从允许字段构建，不直接复制完整报告。合成测试和 demo 不能当作真实账户结果。
 
 Am I Nerfed? 不上传报告，不采集遥测。提交 bug 时提供版本、简化命令、共享摘要与复现步骤即可；凭据、账号 ID、工作区路径、提示词和原始日志应留在本地。
+
+终端默认只显示简洁结果，`-v` / `--verbose` 才输出详细诊断。颜色按终端能力自动启用并遵循 `NO_COLOR`；颜色和终端显示多少内容都不改变证据判定。
 
 ## English summary
 
 Am I Nerfed? compares user selection, outbound request metadata, upstream identifiers, and CLI summaries as distinct evidence layers. A completed response with matching identifiers supports a per-request routing match. It does not authenticate model weights or rule out account-specific behavior. Aliases, fallback, incomplete streams, and conflicting metadata require separate interpretation.
 
-The bare command scans installed clients and every user-facing model their catalogs expose in this run. This is catalog coverage, not every historical server ID or proof of current access. Discovery and inference failures remain visible while other targets continue. Inventory and dry-run commands do not send inference requests. Each model still receives only a short sampled probe. Scans default to the real CLI paths; Codex's direct HTTP path is an explicit scan option.
+The bare command scans installed clients and every user-facing model their catalogs expose in this run. This is catalog coverage, not every historical server ID or proof of current access. Discovery and inference failures remain visible while other targets continue. Inventory and dry-run commands do not send inference requests. Scans default to Claude capture + direct control and Codex CLI + HTTP. Each path still receives only short sampled probes, and backend evidence remains separate. This scope does not include Bedrock, Vertex, or API key access.
 
 Claude's direct control exposes CLI metadata, while the loopback path observes upstream exchanges. Codex's direct HTTP transport is experimental; `--via-codex` observes the real client's available metadata. Neither pair of paths is identical. Model routing and reasoning effort are assessed independently, and missing evidence stays unknown.
+
+All probe entry points default to `~/.am-i-nerfed/<run>/` on Linux and `runs/<run>/` elsewhere; `--out` overrides the location. Terminal output is concise unless verbose mode is enabled. Automatic color respects `NO_COLOR` and has no bearing on evidence quality.

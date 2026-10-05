@@ -48,6 +48,8 @@ import threading
 import time
 import urllib.parse
 
+from ..runtime import Console, default_output, private_mkdir
+
 
 UPSTREAM = "api.anthropic.com"
 ALIAS_KEYS = ["ANTHROPIC_DEFAULT_" + x + "_MODEL"
@@ -588,6 +590,7 @@ def main(argv=None):
     parser.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"))
     parser.add_argument("--timeout", type=float, default=120)
     parser.add_argument("--out", type=Path, help="New output directory (must not exist)")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Show version, configuration and response metadata")
     parser.add_argument("--save-raw", action="store_true",
                         help="Save raw response bodies locally (may contain sensitive text)")
     parser.add_argument("--direct-control", action="store_true",
@@ -595,6 +598,7 @@ def main(argv=None):
     parser.add_argument("--ignore-alias-overrides", action="store_true",
                         help="Remove family alias environment overrides in the child only")
     args = parser.parse_args(argv)
+    console = Console(verbose=args.verbose)
     if os.name != "posix":
         parser.error("Claude probing currently supports macOS/Linux (or WSL) process cleanup only")
     if args.repeat < 1 or args.timeout <= 0 or not math.isfinite(args.timeout):
@@ -643,8 +647,8 @@ def main(argv=None):
     if args.ignore_alias_overrides:
         for key in ALIAS_KEYS:
             env.pop(key, None)
-    out = (args.out or Path("claude-probe-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S"))).resolve()
-    out.mkdir(mode=0o700, parents=True, exist_ok=False)
+    out = (args.out or default_output("claude")).resolve()
+    private_mkdir(out)
     report = {"schema_version": 1, "provider": "claude", "started_at": timestamp(), "claude_version": version,
               "auth": {k: model_id(auth.get(k)) for k in ("authMethod", "apiProvider", "subscriptionType")},
               "configured_model": model_id(settings.get("model")), "alias_environment": aliases,
@@ -663,33 +667,58 @@ def main(argv=None):
     env["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"] = "1"
     for key in ("NO_PROXY", "no_proxy"):
         env[key] = ",".join(filter(None, [env.get(key), "127.0.0.1", "localhost"]))
-    print("Claude:", version, "| subscription:", auth.get("subscriptionType"), flush=True)
-    print("Alias overrides:", aliases or "none", "| ignored:", args.ignore_alias_overrides, flush=True)
-    print("Reports:", out, flush=True)
     try:
+        console.detail("Claude: %s | subscription: %s" % (version, report["auth"].get("subscriptionType")))
+        console.detail("Alias overrides: %s | ignored: %s" % (aliases or "none", args.ignore_alias_overrides))
+        console.detail("Reports: %s" % out)
         with tempfile.TemporaryDirectory(prefix="claude-model-probe-") as cwd:
             index = 0
             for _ in range(args.repeat):
                 for model in models:
                     index += 1
-                    print("[%d/%d] %s ..." % (index, len(models) * args.repeat, model), flush=True)
+                    console.detail("[%d/%d] %s ..." % (index, len(models) * args.repeat, model))
                     result = run_probe(cli, server, env, cwd, model, index, args.timeout, args.effort)
                     report["results"].append(result)
                     save_json(out / "report.json", report)
                     rows = [r for r in result["captures"] if r.get("is_probe_prompt")]
                     wire = list(dict.fromkeys(r["request"].get("model") for r in rows))
                     served = list(dict.fromkeys(m for r in rows for m in r.get("response_models", [])))
-                    print("  request=%s response=%s route=%s effort=%s" % (
-                        wire, served, result["verdict"], result.get("effort_verdict", "NOT_REPORTED")), flush=True)
-                    if result["verdict"] == "UNKNOWN":
-                        print("  errors:", result["cli"]["errors"], flush=True)
+                    console.detail("  request=%s response=%s route=%s effort=%s" % (
+                        wire, served, result["verdict"], result.get("effort_verdict", "NOT_REPORTED")))
+                    console.detail("  captures=" + json.dumps([
+                        {key: r.get(key) for key in ("http_status", "response_headers", "event_types", "complete")}
+                        for r in rows], ensure_ascii=False))
+                    control_status = None
                     if args.direct_control:
                         control = run_probe(cli, server, env, cwd, model, index, args.timeout, args.effort, direct=True)
                         result["direct_control"] = control
-                        result["direct_control_agrees"] = bool(served) and set(served) == set(control["cli"]["assistant_models"])
-                        print("  direct response=%s agrees=%s" % (
-                            control["cli"]["assistant_models"], result["direct_control_agrees"]), flush=True)
+                        comparable = (bool(served) and bool(rows) and result["verdict"] in (
+                            "MATCH", "MATCH_SNAPSHOT", "DIFFERENT", "CLIENT_MODEL_CHANGED")
+                            and all(r.get("complete") and r.get("http_status") == 200 for r in rows)
+                            and control["verdict"] in ("DIRECT_METADATA_MATCH", "DIRECT_METADATA_DIFFERENT"))
+                        result["direct_control_agrees"] = comparable and set(served) == set(control["cli"]["assistant_models"])
+                        control_status = "UNKNOWN" if not comparable else (
+                            "CHANGED" if control["verdict"] == "DIRECT_METADATA_DIFFERENT" else
+                            "AGREES" if result["direct_control_agrees"] else "DIFFERS")
+                        console.detail("  direct response=%s agrees=%s" % (
+                            control["cli"]["assistant_models"], result["direct_control_agrees"]))
                         save_json(out / "report.json", report)
+                    status = "MATCH" if result["verdict"].startswith("MATCH") else (
+                        "UNKNOWN" if result["verdict"] == "UNKNOWN" else "CHANGED")
+                    if result.get("effort_verdict") == "CHANGED" or control_status in ("DIFFERS", "CHANGED"):
+                        status = "CHANGED"
+                    elif status == "MATCH" and control_status == "UNKNOWN":
+                        status = "UNKNOWN"
+                    text = "claude %s -> %s | %s" % (model, ", ".join(served) or "not reported", result["verdict"])
+                    if args.effort or result.get("effort_verdict") == "CHANGED":
+                        text += " | effort " + result.get("effort_verdict", "NOT_REPORTED")
+                    if control_status:
+                        text += " | direct " + control_status
+                    console.result(text, status)
+                    if result["verdict"] == "UNKNOWN":
+                        kinds = [item.get("type", "error") for item in result["cli"].get("errors", [])]
+                        reason = ", ".join(kinds) or ("timed out" if result.get("timed_out") else "incomplete response evidence")
+                        console.warning("claude %s: %s" % (model, reason))
     finally:
         server.close_upstreams()
         server.shutdown()

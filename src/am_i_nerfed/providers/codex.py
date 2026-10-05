@@ -22,6 +22,8 @@ import urllib.request
 import uuid
 import zlib
 
+from ..runtime import Console
+
 CODEX_HOME = os.environ.get("CODEX_HOME", os.path.expanduser("~/.codex"))
 ENDPOINT = "https://chatgpt.com/backend-api/codex/responses"
 PROMPT = "Reply with exactly OK. Do not use tools."
@@ -549,8 +551,9 @@ def main(argv=None):
     ap.add_argument("--via-codex", action="store_true", help="experimental real CLI trace transport with native auth")
     ap.add_argument("--timeout", type=float, default=120, help="request deadline in seconds")
     ap.add_argument("--json-out", help="write allowlisted metadata report (0600)")
-    ap.add_argument("-v", "--verbose", action="store_true", help="show allowlisted headers and event counts")
+    ap.add_argument("-v", "--verbose", action="store_true", help="Show version, transport and allowlisted response metadata")
     args = ap.parse_args(argv)
+    console = Console(verbose=args.verbose)
     if not 1 <= args.repeat <= 20:
         ap.error("--repeat must be between 1 and 20")
     if not math.isfinite(args.timeout) or not 0 < args.timeout <= 3600:
@@ -570,8 +573,8 @@ def main(argv=None):
         auth = None if args.via_codex else load_auth()
         version = codex_version()
         results = []
-        print("Codex subscription probe: %d model(s) x %d; effort=%s; transport=%s" %
-              (len(models), args.repeat, args.effort, "codex" if args.via_codex else "http"))
+        console.detail("Codex: %s | %d model(s) x %d; effort=%s; transport=%s" %
+                       (version, len(models), args.repeat, args.effort, "codex" if args.via_codex else "http"))
         for model in models:
             for _ in range(args.repeat):
                 result = (probe_codex(model, args.effort, args.timeout) if args.via_codex else
@@ -580,24 +583,27 @@ def main(argv=None):
                 result["effort_verdict"] = effort_verdict_of(result)
                 result["verdict"] = verdict_of(result)
                 results.append(result)
-                print("%s -> %s | %s | effort %s -> %s" %
-                      (model, result["completed_model"] or "unknown", result["verdict"],
-                       args.effort, result["served_effort"] or "unknown"))
+                status = "MATCH" if result["verdict"] in ("same", "same(snapshot)") else (
+                    "CHANGED" if result["route_verdict"] == "CHANGED" or result["effort_verdict"] == "CHANGED"
+                    or result["verdict"] == "REQUEST CHANGED" else "UNKNOWN")
+                console.result("codex %s -> %s | %s | effort %s" %
+                               (model, result["completed_model"] or "not reported", result["verdict"],
+                                result["effort_verdict"]), status)
                 if result["error"]:
-                    print("  error: " + result["error"])
-                if args.verbose:
-                    print(json.dumps({"headers": result["headers"], "events": result["event_types"]}))
+                    console.error("codex %s: %s" % (model, result["error"]))
+                console.detail("  effort requested=%s reported=%s" % (args.effort, result["served_effort"] or "not reported"))
+                console.detail(json.dumps({"headers": result["headers"], "events": result["event_types"]}))
         if args.json_out:
             write_report(args.json_out, {"codex_version": version, "results": results})
-        print("Metadata describes reported routing; it cannot attest model weights or hidden account flags.")
+        console.detail("Metadata describes reported routing; it cannot attest model weights or hidden account flags.")
         if any(r.get("error") in ("cli_isolation_unavailable", "cli_unavailable") for r in results):
             return 1
         return 2 if any(r["verdict"] not in ("same", "same(snapshot)") for r in results) else 0
     except ProbeError as exc:
-        print("error: " + str(exc), file=sys.stderr)
+        console.error("error: " + str(exc))
         return 1
     except OSError:
-        print("error: local file or executable could not be accessed.", file=sys.stderr)
+        console.error("error: local file or executable could not be accessed.")
         return 1
 
 

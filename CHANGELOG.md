@@ -1,12 +1,23 @@
 # Changelog
 
+## 0.4.0
+
+- Cover both existing subscription paths by default in scans: Claude proxy capture + direct-client control, and Codex CLI + HTTP. Label backends in reports and preserve each path's evidence independently.
+- Default `--codex-transport` to `both`, with `cli` and `http` available for narrower checks. Add `--no-direct-control` for disabling the default Claude scan control; retain `--direct-control` compatibility.
+- Store probe runs under `~/.am-i-nerfed/` on Linux across entry points. Other platforms retain the current directory's `runs/`; explicit `--out` always takes precedence.
+- Keep terminal output concise by default, add detailed output through `-v` / `--verbose`, and use automatic terminal colors with `NO_COLOR` support.
+- Consolidate maintained directories into `docs/`, `src/`, and `tests/`. Move the banner, logo, and demo SVG into `docs/`, and move `build_standalone.py` to the repository root.
+- Remove redundant provider wrapper scripts and checked-in demo JSON / Markdown; provider subcommands and `demo --format` provide those entry points and examples.
+
+Backend coverage is limited to the implemented subscription paths. It does not add Bedrock, Vertex, API key authentication, or model-weight attestation.
+
 ## 0.3.0
 
 - Add a generated `am-i-nerfed.py` entry point that runs with Python 3.9+ without pip, git, a virtual environment, or package installation.
 - Support direct piping into `python3 -`, downloading the file for reuse, and running it from a checkout. All paths accept the same CLI arguments and default to the full scan.
 - Embed release code in the standalone file. Load it from a private temporary ZIP and clean it up on exit, without downloading additional project code at runtime.
 - Preserve reports in the caller's current working directory under `runs/`, or the selected `--out` path.
-- Add `scripts/build_standalone.py` and `--check` for keeping the generated entry point synchronized with source.
+- Add a standalone builder and `--check` for keeping the generated entry point synchronized with source.
 - Make the standalone quick start the primary documentation path while retaining optional package installation for a persistent `am-i-nerfed` command.
 
 Live probes still require the relevant official client and subscription sign-in, and consume the subscription allowance. The synthetic demo requires neither credentials nor inference requests.

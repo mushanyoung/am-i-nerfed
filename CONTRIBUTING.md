@@ -13,7 +13,7 @@ python -m pip install --upgrade pip
 python -m pip install -e .
 python -m unittest discover -s tests -v
 am-i-nerfed demo
-python3 scripts/build_standalone.py --check
+python3 build_standalone.py --check
 ```
 
 Python 3.9+；运行时保持标准库依赖。测试使用合成响应，不访问外网或读取账号凭据；允许启动本机回环 HTTP 服务验证传输行为。真实订阅测试会消耗额度，不放入公共 CI，也不要求贡献者提供登录凭据。
@@ -25,16 +25,24 @@ Python 3.9+；运行时保持标准库依赖。测试使用合成响应，不访
 修改 `src/` 中的实现后，同时更新生成文件并检查一致性：
 
 ```bash
-python3 scripts/build_standalone.py
-python3 scripts/build_standalone.py --check
+python3 build_standalone.py
+python3 build_standalone.py --check
 python3 am-i-nerfed.py demo
 ```
 
-不要只修改生成文件；修改源代码或构建脚本后重新生成。运行 `--check` 只验证是否同步，不替代协议与报告测试。单文件执行会清理私有临时 ZIP，报告仍写入调用者的当前工作目录。
+不要只修改生成文件；修改源代码或构建脚本后重新生成。运行 `--check` 只验证是否同步，不替代协议与报告测试。单文件执行会清理私有临时 ZIP；所有探针入口在 Linux 默认写入 `~/.am-i-nerfed/<run>/`，其他平台写入当前目录的 `runs/<run>/`，显式 `--out` 优先。
+
+## 目录与默认行为
+
+维护文件集中在 `src/`（实现）、`tests/`（测试）和 `docs/`（方法论与 SVG 资产）。`build_standalone.py` 位于根目录；`am-i-nerfed.py` 是生成入口。合成 JSON / Markdown 示例可由 `demo --format json|markdown` 随时生成，仓库只保留 `docs/demo.svg` 预览。
+
+扫描默认验证 Claude 代理采集与直连对照，以及 Codex CLI 与 HTTP。新增或调整判定时按 backend 保留结果；某条路径缺失证据不能由另一条成功路径补成 MATCH。精确复查仍使用 `claude` / `codex` 子命令，不维护单独兼容 wrapper。
+
+终端默认保持简洁，详细诊断放在 `-v` / `--verbose`。颜色自动适配终端并遵循 `NO_COLOR`；日志重定向与机器可读报告不应依赖颜色表达含义。
 
 ## 提交问题
 
-使用 [issue 模板](https://github.com/mushanyoung/am-i-nerfed/issues/new/choose)，提供版本、操作系统、简化命令、预期 / 实际行为和分享摘要。先检查完整模型 ID、别名覆盖和传输路径是否一致。不要提交 `runs/`、token、账号 ID、真实提示词、CLI 完整日志或原始响应。
+使用 [issue 模板](https://github.com/mushanyoung/am-i-nerfed/issues/new/choose)，提供版本、操作系统、简化命令、预期 / 实际行为和分享摘要。先检查完整模型 ID、别名覆盖和传输路径是否一致。不要提交 `~/.am-i-nerfed/`、`runs/`、token、账号 ID、真实提示词、CLI 完整日志或原始响应。
 
 如果需要新 fixture，请手工构造最小响应结构，使用明显虚构的模型名和标识。删掉敏感字段不代表剩余正文适合公开；优先从空文件重建合成样本。
 
@@ -57,4 +65,6 @@ Use synthetic, minimal fixtures and tests without external network or account cr
 
 Default scans cover all discovered candidates. Discovery and inference failures must remain visible. Model catalog fixtures should exercise duplicate entries, hidden models, fallback sources, and unavailable tools without relying on real account data.
 
-The root `am-i-nerfed.py` is a generated standalone release. After source changes, run `python3 scripts/build_standalone.py`, commit the regenerated file with the source change, and verify it with `python3 scripts/build_standalone.py --check`. A local `python3 am-i-nerfed.py demo` exercises the standalone path without inference. Do not maintain separate behavior by editing only the generated file.
+Scans cover Claude capture + direct control and Codex CLI + HTTP by default. Keep evidence separate by backend. Probe output defaults to `~/.am-i-nerfed/<run>/` on Linux and `runs/<run>/` elsewhere, with `--out` taking precedence. Keep terminal output concise unless `--verbose` is set, and respect `NO_COLOR`.
+
+The root `am-i-nerfed.py` is a generated standalone release. After source changes, run `python3 build_standalone.py`, commit the regenerated file with the source change, and verify it with `python3 build_standalone.py --check`. A local `python3 am-i-nerfed.py demo` exercises the standalone path without inference. Do not maintain separate behavior by editing only the generated file.

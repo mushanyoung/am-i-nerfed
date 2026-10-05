@@ -14,7 +14,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNNER = ROOT / "am-i-nerfed.py"
-BUILDER = ROOT / "scripts" / "build_standalone.py"
+BUILDER = ROOT / "build_standalone.py"
 
 
 class StandaloneTests(unittest.TestCase):
@@ -154,8 +154,11 @@ class StandaloneTests(unittest.TestCase):
                         out = Path(argv[argv.index('--out') + 1])
                         out.mkdir(parents=True)
                         record = reports.row(provider, model, [model], [model], 'MATCH', complete=True)
+                        if '--direct-control' in argv:
+                            record['direct_control'] = {'reported_models': [model], 'complete': True, 'agrees': True}
                         (out / 'report.json').write_text(json.dumps({'schema_version': 1, 'records': [record]}))
-                        print('OFFLINE_PROBE=' + provider + ':' + model)
+                        backend = 'claude-proxy' if provider == 'claude' else ('codex-cli' if '--via-codex' in argv else 'codex-http')
+                        print('OFFLINE_PROBE=' + backend + ':' + model)
                         return 0
                     module._probe = probe
                 return module
@@ -168,11 +171,17 @@ class StandaloneTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = [line.removeprefix("OFFLINE_PROBE=") for line in result.stdout.splitlines()
                  if line.startswith("OFFLINE_PROBE=")]
-        self.assertEqual(calls, ["claude:claude-one", "claude:claude-two", "codex:gpt-one", "codex:gpt-two"])
-        scan_reports = list((self.cwd / "runs").glob("scan-*/report.json"))
+        self.assertCountEqual(calls, ["claude-proxy:claude-one", "claude-proxy:claude-two", "codex-cli:gpt-one",
+                                      "codex-http:gpt-one", "codex-cli:gpt-two", "codex-http:gpt-two"])
+        output_root = self.home / ".am-i-nerfed" if sys.platform.startswith("linux") else self.cwd / "runs"
+        scan_reports = list(output_root.glob("scan-*/report.json"))
         self.assertEqual(len(scan_reports), 1)
         summary = json.loads(scan_reports[0].read_text())
-        self.assertEqual(summary["coverage"]["planned_probes"], 4)
+        self.assertEqual(summary["coverage"]["planned_probes"], 6)
+        self.assertEqual({r['backend'] for r in summary['records']}, {'claude-proxy', 'codex-cli', 'codex-http'})
+        if sys.platform.startswith("linux"):
+            self.assertFalse((self.cwd / 'runs').exists())
+            self.assertEqual(output_root.stat().st_mode & 0o777, 0o700)
         self.assertTrue(summary["coverage"]["complete"])
         self.assert_clean_runtime()
 

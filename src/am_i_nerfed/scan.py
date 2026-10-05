@@ -1,13 +1,11 @@
 """Discover installed clients and collect every selected model without fail-fast."""
 import argparse
-import datetime as dt
 import json
 import math
 from pathlib import Path
 import re
-import sys
 
-from . import discovery, reports
+from . import discovery, reports, runtime
 
 PROVIDERS = ("claude", "codex")
 
@@ -26,6 +24,7 @@ def parser(inventory_only=False):
     p.add_argument("--tool", action="append", choices=PROVIDERS, help="Limit tools; repeat to select both")
     p.add_argument("--include-hidden", action="store_true", help="Also include hidden catalog entries where available")
     p.add_argument("--discovery-timeout", type=float, default=30, help="Catalog deadline per tool in seconds")
+    p.add_argument("-v", "--verbose", action="store_true", help="Show catalog details and provider diagnostics")
     if inventory_only:
         return p
     p.add_argument("-m", "--model", action="append", type=selector, help="Only these PROVIDER:MODEL pairs; repeatable")
@@ -33,10 +32,15 @@ def parser(inventory_only=False):
     p.add_argument("-n", "--repeat", type=int, default=1)
     p.add_argument("-e", "--effort", choices=sorted(reports.EFFORTS), help="Explicit effort for every model; unsupported values fail that model")
     p.add_argument("--timeout", type=float, default=120, help="Deadline per probe in seconds")
-    p.add_argument("--out", type=Path, help="New output directory; defaults to runs/scan-TIMESTAMP")
+    p.add_argument("--out", type=Path, help="New output directory; defaults to ~/.am-i-nerfed/scan-TIMESTAMP on Linux, runs/scan-TIMESTAMP elsewhere")
     p.add_argument("--dry-run", action="store_true", help="Discover and print planned probes without inference")
-    p.add_argument("--codex-transport", choices=("cli", "http"), default="cli")
-    p.add_argument("--direct-control", action="store_true", help="Also run Claude without the capture proxy")
+    p.add_argument("--codex-transport", choices=("both", "cli", "http"), default="both",
+                   help="Codex backends to probe (default: both)")
+    controls = p.add_mutually_exclusive_group()
+    controls.add_argument("--direct-control", dest="direct_control", action="store_true", default=True,
+                          help="Also run Claude without the capture proxy (default)")
+    controls.add_argument("--no-direct-control", dest="direct_control", action="store_false",
+                          help="Skip the additional Claude direct CLI control")
     p.add_argument("--ignore-alias-overrides", action="store_true", help="Remove Claude alias environment overrides when probing")
     p.add_argument("--save-raw", action="store_true", help="Save private Claude response bodies locally")
     return p
@@ -85,6 +89,47 @@ def choose_effort(provider, model, entry, override):
     return levels[0]
 
 
+def plan_probes(pairs, found, args):
+    plan = []
+    for provider, model in pairs:
+        backends = (["codex-cli", "codex-http"] if args.codex_transport == "both" else
+                    ["codex-" + args.codex_transport]) if provider == "codex" else ["claude-proxy"]
+        for backend in backends:
+            plan.append({"provider": provider, "model": model, "backend": backend,
+                         "effort": choose_effort(provider, model, found["tools"].get(provider, {}), args.effort),
+                         "repeat": args.repeat, "direct_control": provider == "claude" and args.direct_control})
+    return plan
+
+
+def result_status(rows, status):
+    if any(r["route_status"] == "CHANGED" or r["effort_status"] == "CHANGED"
+           or (r.get("direct_control", {}).get("complete") is True
+               and r["direct_control"].get("route_status") == "CHANGED")
+           or (r.get("complete") is True and bool(r.get("reported_models"))
+               and r.get("direct_control", {}).get("complete") is True
+               and r["direct_control"].get("agrees") is not True) for r in rows):
+        return "CHANGED"
+    if status or not rows or any(r["route_status"] != "MATCH" or not reports.complete_evidence(r) for r in rows):
+        return "UNKNOWN"
+    return "MATCH"
+
+
+def result_line(index, total, item, rows, status):
+    reported = list(dict.fromkeys(m for r in rows for m in r["reported_models"]))
+    routes = ",".join(dict.fromkeys(r["route_status"] for r in rows))
+    efforts = ",".join(dict.fromkeys(r["effort_status"] for r in rows))
+    line = "[%d/%d] %s %s → %s | %s route=%s effort=%s" % (
+        index, total, item["backend"], item["model"], ",".join(reported) or "unknown", status, routes, efforts)
+    if item["direct_control"]:
+        controls = [r.get("direct_control", {}) for r in rows]
+        control_status = ("CHANGED" if any(c.get("complete") is True and c.get("route_status") == "CHANGED" for c in controls) else
+                          "UNKNOWN" if any(r.get("complete") is not True or not r.get("reported_models")
+                                           or c.get("complete") is not True for r, c in zip(rows, controls)) else
+                          "MATCH" if all(c.get("agrees") is True for c in controls) else "CHANGED")
+        line += " direct=" + control_status
+    return line + " | complete=%d/%d" % (sum(reports.complete_evidence(r) for r in rows), item["repeat"])
+
+
 def main(argv, probe, private_write, inventory_only=False):
     p = parser(inventory_only)
     args = p.parse_args(argv)
@@ -107,47 +152,48 @@ def main(argv, probe, private_write, inventory_only=False):
         return 1 if found["failures"] else 0
     pairs = requested or [(provider, model) for provider, entry in found["tools"].items() for model in entry["models"]]
     pairs = [pair for pair in dict.fromkeys(pairs) if pair not in args.exclude_model]
-    plan = [{"provider": provider, "model": model,
-             "effort": choose_effort(provider, model, found["tools"].get(provider, {}), args.effort),
-             "repeat": args.repeat} for provider, model in pairs]
+    plan = plan_probes(pairs, found, args)
     found["plan"] = plan
     if args.dry_run:
         print(json.dumps(found, ensure_ascii=False, indent=2))
         return 1 if found["failures"] or not plan else 0
-    if not plan:
-        print(json.dumps(found, ensure_ascii=False, indent=2))
-        print("No models selected; no inference requests were sent.", file=sys.stderr)
-        return 1
-    out = args.out or Path("runs") / ("scan-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
-    out.mkdir(mode=0o700, parents=True)
-    private_write(out / "inventory.json", json.dumps(found, ensure_ascii=False, indent=2) + "\n")
-    print("Am I Nerfed? — %d model(s) × %d probe(s); output: %s" % (len(plan), args.repeat, out), flush=True)
-    for provider, entry in found["tools"].items():
-        print("%s: %d candidates via %s" % (provider, len(entry["models"]), entry.get("source", "unknown")), flush=True)
-        for warning in entry.get("warnings", []):
-            print("  " + str(warning), flush=True)
+    console = runtime.Console(args.verbose)
     for failure in found["failures"]:
-        print("Discovery warning: %s / %s" % (failure["provider"], failure["reason"]), file=sys.stderr)
+        console.warning("Discovery warning: %s / %s" % (failure["provider"], failure["reason"]))
+    if not plan:
+        console.error("No models selected; no inference requests were sent.")
+        return 1
+    out = args.out or runtime.default_output("scan")
+    runtime.private_mkdir(out)
+    private_write(out / "inventory.json", json.dumps(found, ensure_ascii=False, indent=2) + "\n")
+    planned = len(plan) * args.repeat
+    controls = sum(item["direct_control"] for item in plan) * args.repeat
+    console.info("Am I Nerfed? — %d model(s); %d primary probe(s) + %d Claude direct control(s); output: %s" % (
+        len(pairs), planned, controls, out))
+    for provider, entry in found["tools"].items():
+        console.detail("%s: %d candidates via %s" % (provider, len(entry["models"]), entry.get("source", "unknown")))
+        for warning in entry.get("warnings", []):
+            console.detail("  " + str(warning))
     records, run_statuses = [], []
     for index, item in enumerate(plan, 1):
         provider, model = item["provider"], item["model"]
-        target = out / "probes" / (provider + "-%03d" % index)
+        target = out / "probes" / (item["backend"] + "-%03d" % index)
         probe_args = ["--model", model, "--repeat", str(args.repeat), "--timeout", str(args.timeout), "--out", str(target)]
+        probe_args.append("--verbose" if args.verbose else "--quiet")
         if item["effort"]:
             probe_args += ["--effort", item["effort"]]
-        if provider == "codex" and args.codex_transport == "cli":
+        if item["backend"] == "codex-cli":
             probe_args.append("--via-codex")
         if provider == "claude":
             for name in ("direct_control", "ignore_alias_overrides", "save_raw"):
                 if getattr(args, name):
                     probe_args.append("--" + name.replace("_", "-"))
-        print("[%d/%d] %s:%s" % (index, len(plan), provider, model), flush=True)
         status, rows = 1, []
         try:
             entry = found["tools"].get(provider, {})
             levels = entry.get("catalog", {}).get(model, {}).get("efforts", [])
             if args.effort and levels and "cache" not in entry.get("source", "").lower() and args.effort not in levels:
-                print("Requested effort is unsupported by the live catalog; this model remains UNKNOWN.", file=sys.stderr)
+                console.error("%s %s: requested effort is unsupported by the live catalog." % (item["backend"], model))
                 raise ValueError("unsupported_effort")
             status = probe(provider, probe_args)
             if (target / "report.json").is_file():
@@ -155,17 +201,20 @@ def main(argv, probe, private_write, inventory_only=False):
         except SystemExit as exc:
             status = exc.code if isinstance(exc.code, int) else 1
         except Exception as exc:
-            print("Probe failed (%s); continuing with remaining models." % type(exc).__name__, file=sys.stderr)
+            console.error("%s %s: probe failed (%s); continuing." % (item["backend"], model, type(exc).__name__))
         if len(rows) != args.repeat:
             status = status or 1
         while len(rows) < args.repeat:
             rows.append(reports.row(provider, model, [], [], "UNKNOWN", item["effort"]))
-        if provider == "claude" and args.direct_control:
-            for row in rows:
+        for row in rows:
+            row["backend"] = item["backend"]
+            if item["direct_control"]:
                 row.setdefault("direct_control", {"reported_models": [], "agrees": False, "complete": False})
+                row["direct_control"]["backend"] = "claude-direct"
         records.extend(rows)
         run_statuses.append(status)
-    planned = len(plan) * args.repeat
+        verdict = result_status(rows, status)
+        console.result(result_line(index, len(plan), item, rows, verdict), verdict)
     complete = sum(reports.complete_evidence(r) for r in records)
     data = {"records": records, "coverage": {
         "planned_probes": planned, "recorded_probes": len(records), "complete_probes": complete,
@@ -174,7 +223,9 @@ def main(argv, probe, private_write, inventory_only=False):
     }}
     for format_name, filename in (("json", "report.json"), ("json", "share.json"), ("markdown", "share.md")):
         private_write(out / filename, reports.render(data, format_name))
-    print("Completed evidence: %d/%d probes. Shareable summary: %s" % (complete, planned, out / "share.md"))
+    console.info("Completed evidence: %d/%d primary probes. Shareable summary: %s" % (complete, planned, out / "share.md"))
     failures = any(r["route_status"] != "MATCH" or r["effort_status"] == "CHANGED"
+                   or (r.get("direct_control", {}).get("complete") is True
+                       and r["direct_control"].get("route_status") == "CHANGED")
                    or ("direct_control" in r and r["direct_control"].get("agrees") is not True) for r in records)
     return 2 if not data["coverage"]["complete"] or any(run_statuses) or failures else 0

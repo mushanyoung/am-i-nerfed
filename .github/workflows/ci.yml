@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python scripts/build_standalone.py --check
+      - run: python build_standalone.py --check
       - run: python -I -S am-i-nerfed.py demo --format json
       - run: cat am-i-nerfed.py | python -I -S - demo --format json
       - run: python -m pip install .
@@ -33,7 +33,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: python scripts/build_standalone.py --check
+      - run: python build_standalone.py --check
       - run: python -m pip install build twine
       - run: python -m build
       - run: python -m twine check dist/*

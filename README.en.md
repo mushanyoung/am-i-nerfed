@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/banner.svg" alt="Am I Nerfed? — Trace the model behind the answer." width="960"></p>
+<p align="center"><img src="docs/banner.svg" alt="Am I Nerfed? — Trace the model behind the answer." width="960"></p>
 
 <p align="center"><a href="README.md">简体中文</a> · <a href="docs/methodology.md">Methodology</a> · <a href="CONTRIBUTING.md">Contributing</a> · <a href="LICENSE">MIT</a></p>
 
@@ -16,7 +16,7 @@ With Python 3.9+ and official clients already signed in to your subscription, ru
 curl -fsSL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-nerfed.py | python3 -
 ```
 
-Live probes use existing **subscription sign-in** and consume the relevant allowance. All discovered models are included by default. Add `--dry-run` to preview the plan without inference requests.
+Live probes use existing **subscription sign-in** and consume the relevant allowance. Defaults cover all discovered models and the implemented subscription paths: Claude capture + direct control, and Codex CLI + HTTP. Add `--dry-run` to preview the plan without inference requests.
 
 The result is observable routing evidence for those requests. Matching identifiers do not attest to backend weights, rule out hidden account flags, or measure intelligence. Differences need interpretation: aliases, configuration, and fallback all matter.
 
@@ -42,7 +42,7 @@ curl -fL https://raw.githubusercontent.com/mushanyoung/am-i-nerfed/main/am-i-ner
 python3 am-i-nerfed.py
 ```
 
-An existing checkout can run `python3 am-i-nerfed.py` from its root without installation. The standalone file embeds the project's release code and downloads no additional project code at runtime. It loads from a private temporary ZIP, which is cleaned up on exit. Reports remain under `runs/` in your current working directory, or your chosen `--out` path.
+An existing checkout can run `python3 am-i-nerfed.py` from its root without installation. The standalone file embeds the project's release code and downloads no additional project code at runtime. It loads from a private temporary ZIP, which is cleaned up on exit. Every probe entry point defaults to `~/.am-i-nerfed/<run>/` on Linux and `runs/<run>/` under the current working directory elsewhere. An explicit `--out` always takes precedence.
 
 Examples below use `am-i-nerfed`. For the standalone file, substitute `python3 am-i-nerfed.py`; for a pipe, append the same arguments after `python3 -`.
 
@@ -68,7 +68,7 @@ Package installation uses GitHub or a local checkout; no PyPI publication is imp
 
 The bare command is equivalent to `am-i-nerfed scan`. Both discover installed tools, read their model catalogs, and probe the candidates. If one tool or model fails, the scan continues with the others and records the failure.
 
-Scans use real clients by default: Claude is observed through the loopback proxy, and Codex uses its CLI. Select `--codex-transport http` explicitly for Codex's direct HTTP path.
+Scans cover both implemented subscription paths for each provider by default. Claude runs the real client through the capture proxy and adds a direct-client control. Codex probes each model through both its real CLI and subscription HTTP. Reports distinguish the backends; success on one path does not establish success on another. “All paths” refers to these implemented subscription paths, not Bedrock, Vertex, or API key access.
 
 ```bash
 # Inventory and sources, without inference requests
@@ -77,6 +77,12 @@ am-i-nerfed scan --dry-run
 
 # Limit tools; --tool is repeatable
 am-i-nerfed scan --tool claude
+
+# Only Codex CLI; the default both also probes HTTP
+am-i-nerfed scan --tool codex --codex-transport cli
+
+# Keep Claude capture and disable its direct control
+am-i-nerfed scan --tool claude --no-direct-control
 
 # Select models; replace MODEL with a Codex ID from the inventory
 am-i-nerfed scan --model claude:opus --model codex:MODEL
@@ -96,11 +102,15 @@ am-i-nerfed scan --tool codex --repeat 2 --effort high --timeout 120 --out runs/
 | `--discovery-timeout 30` | Catalog discovery timeout; 30 seconds by default |
 | `--timeout 120` | Per-probe timeout; 120 seconds by default |
 | `--effort LEVEL` | Override effort for all targets; otherwise Codex uses each catalog default or a supported low effort, while Claude keeps its client default |
-| `--direct-control` | Add a Claude CLI control without the proxy |
+| `--codex-transport both\|cli\|http` | Codex paths; defaults to `both`, recorded separately |
+| `--no-direct-control` | Disable the Claude direct control enabled by default in scans; `--direct-control` remains accepted |
 | `--ignore-alias-overrides` | Remove Claude family alias overrides in the subprocess |
 | `--save-raw` | Explicitly retain Claude raw responses; keep them private |
+| `-v` / `--verbose` | Show diagnostic detail; terminal output is concise by default |
 
 `models` also supports `--tool`, `--include-hidden`, and `--discovery-timeout`.
+
+Color is automatic when supported by the terminal; set `NO_COLOR=1` to disable it. Add `--verbose` when investigating discovery or request details, for example `am-i-nerfed --verbose`.
 
 “All” means **the user-facing models discoverable from the clients in this run**, not every historical server model ID or a guarantee that each catalog entry is callable now. Authentication, client versions, caches, and account access affect discovery. Explicitly selected but missing tools, discovery failures, catalog fallbacks, and failed requests remain visible rather than counting as successful checks. `models` / `--dry-run` send no inference requests, but discovery may start official clients or read catalogs.
 
@@ -132,15 +142,15 @@ Codex's default HTTP transport reuses file-based subscription credentials to ins
 
 Shared reports use `MATCH` / `CHANGED` / `UNKNOWN` for `route_status`, and `MATCH` / `CHANGED` / `NOT_REPORTED` / `NOT_REQUESTED` for `effort_status`. Model routing and effort are assessed independently. Missing fields, incomplete streams, and conflicting evidence do not become a match; `CHANGED` is an observed difference, not a capability ranking.
 
-Claude direct controls are shown separately as `AGREES` / `DIFFERS` / `UNKNOWN`. Codex can return nonzero when requested effort is not reported even if the model matches. Each short probe covers only its request, time, and path; scanning the catalog does not establish behavior across long sessions or a subscription period. [Methodology](docs/methodology.md)
+Claude direct controls are shown separately as `AGREES` / `DIFFERS` / `UNKNOWN`. An internal routing change in the direct client is labeled `CHANGED`, even when both paths return the same model. Codex can return nonzero when requested effort is not reported even if the model matches. Each short probe covers only its request, time, and path; scanning the catalog does not establish behavior across long sessions or a subscription period. [Methodology](docs/methodology.md)
 
-Coverage `complete` means the planned probes have complete evidence, including any explicitly requested direct controls. Complete evidence may still show `CHANGED`; coverage and matching are separate judgments.
+Coverage `complete` means the planned models and backends have complete evidence, including enabled direct controls. Complete evidence may still show `CHANGED`; coverage and matching are separate judgments.
 
 ## Reports and offline demo
 
-Results stay in the output directory. Share generated `share.md` / `share.json` or export a fresh summary from allowed fields. Shared summaries exclude accounts, request IDs, prompts, generated text, and raw errors. Preview them before posting.
+Results default to `~/.am-i-nerfed/<run>/` on Linux and `runs/<run>/` elsewhere; `--out` overrides the location. Share generated `share.md` / `share.json` or export a fresh summary from allowed fields. Shared summaries retain the backend and exclude accounts, request IDs, prompts, generated text, and raw errors. Preview them before posting.
 
-A scan writes `inventory.json` (local sources, client paths, and warnings), `report.json` (normalized records and coverage), `share.json` / `share.md`, and per-model diagnostics under `probes/PROVIDER-NNN/`. Keep the inventory and per-model reports private. Shared summaries retain coverage so partial success is not mistaken for a complete scan.
+A scan writes `inventory.json` (local sources, client paths, and warnings), `report.json` (normalized records and coverage), `share.json` / `share.md`, and per-model, per-path diagnostics under `probes/`. Keep the inventory and diagnostic reports private. Shared summaries retain coverage so partial success is not mistaken for a complete scan.
 
 ```bash
 am-i-nerfed report runs/check/report.json --format markdown --output scan-summary.md
@@ -153,9 +163,9 @@ am-i-nerfed demo
 am-i-nerfed demo --format svg --output demo.svg
 ```
 
-[View the synthetic example card](examples/demo-card.svg) · [View the example summary](examples/demo-report.md)
+[View the synthetic example card](docs/demo.svg)
 
-Keep full diagnostic reports local. Claude's opt-in `--save-raw` can retain sensitive response content. Do not upload run directories, credentials, or CLI logs. The project has no telemetry and does not upload results automatically. [SECURITY.md](SECURITY.md)
+Keep full diagnostic reports local. Claude's opt-in `--save-raw` can retain sensitive response content. Do not upload `~/.am-i-nerfed/`, `runs/`, credentials, or CLI logs. The project has no telemetry and does not upload results automatically. [SECURITY.md](SECURITY.md)
 
 ## Troubleshooting
 
@@ -179,11 +189,11 @@ source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -e .
 python -m unittest discover -s tests -v
-python3 scripts/build_standalone.py --check
+python3 build_standalone.py --check
 ```
 
 Automated tests need no external network or account credentials; some start loopback servers. Live subscription checks run separately. Reproducible catalog, protocol, and reporting issues are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-After source changes, run `python3 scripts/build_standalone.py` to update the generated root file, then use `--check` to confirm it is current. Do not edit only the generated file.
+After source changes, run `python3 build_standalone.py` to update the generated root file, then use `--check` to confirm it is current. Do not edit only the generated file.
 
 Independent community project, not affiliated with or endorsed by Anthropic or OpenAI. [MIT License](LICENSE).

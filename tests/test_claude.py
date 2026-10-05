@@ -2,6 +2,7 @@
 
 import contextlib
 import http.client
+import io
 import json
 import os
 from pathlib import Path
@@ -312,6 +313,91 @@ class ProbeVerdictTests(unittest.TestCase):
 
 @unittest.skipUnless(os.name == "posix", "Claude process cleanup currently requires POSIX")
 class MainPreflightTests(unittest.TestCase):
+    def run_main_fixture(self, extra_args=(), result=None, terminal=False, control=None):
+        auth = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
+                "subscriptionType": "team", "email": "PRIVATE_EMAIL"}
+        if result is None:
+            result = {"verdict": "MATCH", "effort_verdict": "NOT_REPORTED", "cli": {"errors": []},
+                      "captures": [{"is_probe_prompt": True, "request": {"model": MODEL},
+                                    "response_models": [MODEL], "http_status": 200, "complete": True,
+                                    "response_headers": {"server": "fixture"}, "event_types": ["message_stop"]}]}
+        output, errors = io.StringIO(), io.StringIO()
+        output.isatty = lambda: terminal
+        with tempfile.TemporaryDirectory() as folder:
+            target = Path(folder) / "private parent" / "output"
+            with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": folder, "TERM": "xterm"}, clear=True), \
+                    mock.patch.object(claude.shutil, "which", return_value="/fake/claude"), \
+                    mock.patch.object(claude.subprocess, "check_output", side_effect=["2.0.0", json.dumps(auth), "--safe-mode"]), \
+                    mock.patch.object(claude, "default_output", return_value=target) as default, \
+                    mock.patch.object(claude, "CaptureServer") as server, \
+                    mock.patch.object(claude, "run_probe", return_value=result,
+                                      side_effect=[result, control] if control is not None else None) as run, \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                server.return_value.url = "http://127.0.0.1:1"
+                status = claude.main(["-m", MODEL] + list(extra_args))
+            default.assert_called_once_with("claude")
+            server.return_value.close_upstreams.assert_called_once()
+            server.return_value.server_close.assert_called_once()
+            report_text = (target / "report.json").read_text()
+            return status, output.getvalue(), errors.getvalue(), report_text, run.call_count
+
+    def test_concise_default_and_verbose_details(self):
+        for extra, verbose in (((), False), (("-v",), True)):
+            with self.subTest(verbose=verbose):
+                status, output, errors, report, count = self.run_main_fixture(extra)
+                self.assertEqual(status, 0)
+                self.assertEqual(count, 1)  # Direct control remains opt-in here.
+                self.assertEqual(errors, "")
+                self.assertIn("claude " + MODEL + " -> " + MODEL + " | MATCH", output)
+                self.assertEqual("Alias overrides:" in output, verbose)
+                self.assertEqual("captures=" in output, verbose)
+                self.assertEqual("Claude: 2.0.0" in output, verbose)
+                if not verbose:
+                    self.assertEqual(len(output.splitlines()), 1)
+                self.assertNotIn("PRIVATE_EMAIL", output + report)
+
+    def test_terminal_color_is_not_saved_in_report(self):
+        status, output, errors, report, _ = self.run_main_fixture(terminal=True)
+        self.assertEqual(status, 0)
+        self.assertIn("\033[32m", output)
+        self.assertNotIn("\033", report)
+        self.assertNotIn("\\u001b", report)
+        self.assertEqual(json.loads(report)["results"][0]["verdict"], "MATCH")
+
+    def test_unknown_keeps_failure_reason_on_stderr(self):
+        result = {"verdict": "UNKNOWN", "captures": [],
+                  "cli": {"errors": [{"type": "overloaded_error"}]}}
+        status, output, errors, _, _ = self.run_main_fixture(result=result)
+        self.assertEqual(status, 2)
+        self.assertIn("UNKNOWN", output)
+        self.assertIn("overloaded_error", errors)
+        self.assertNotIn("\033", output + errors)
+
+    def test_incomplete_proxy_cannot_claim_direct_disagreement(self):
+        proxy_result = {"verdict": "UNKNOWN", "captures": [], "cli": {"errors": []}}
+        control = {"verdict": "DIRECT_METADATA_MATCH", "cli_exit_code": 0,
+                   "cli": {"assistant_models": [MODEL], "result_is_error": False}}
+        status, output, _, report, count = self.run_main_fixture(
+            ("--direct-control",), result=proxy_result, terminal=True, control=control)
+        self.assertEqual(status, 2)
+        self.assertEqual(count, 2)
+        self.assertIn("direct UNKNOWN", output)
+        self.assertNotIn("DIFFERS", output)
+        self.assertIn("\033[33m", output)
+        stored = json.loads(report)["results"][0]
+        self.assertFalse(stored["direct_control_agrees"])
+        self.assertEqual(stored["direct_control"], control)
+
+    def test_direct_client_routing_change_is_visible_even_when_response_agrees(self):
+        control = {"verdict": "DIRECT_METADATA_DIFFERENT", "cli_exit_code": 0,
+                   "cli": {"assistant_models": [MODEL], "result_is_error": False}}
+        status, output, _, report, _ = self.run_main_fixture(
+            ("--direct-control",), terminal=True, control=control)
+        self.assertEqual(status, 2)
+        self.assertIn("direct CHANGED", output)
+        self.assertIn("\033[31m", output)
+        self.assertTrue(json.loads(report)["results"][0]["direct_control_agrees"])
+
     def test_default_haiku_and_private_account_metadata(self):
         auth = {"loggedIn": True, "authMethod": "claude.ai", "apiProvider": "firstParty",
                 "subscriptionType": "team", "email": "SECRET_EMAIL", "accountId": "SECRET_ACCOUNT"}

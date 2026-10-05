@@ -313,6 +313,47 @@ class CodexTransportTests(unittest.TestCase):
 
 
 class CodexCLITests(unittest.TestCase):
+    def test_concise_default_and_verbose_details(self):
+        for extra, verbose in (([], False), (["-v"], True)):
+            with self.subTest(verbose=verbose), patch.object(codex, "codex_version", return_value="1.0.0"), \
+                    patch.object(codex, "probe_codex", return_value=good_result()), \
+                    contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(codex.main(["-m", MODEL, "--via-codex"] + extra), 0)
+            text = output.getvalue()
+            self.assertIn("codex " + MODEL + " -> " + MODEL + " | same | effort MATCH", text)
+            self.assertEqual("Codex: 1.0.0" in text, verbose)
+            self.assertEqual('"headers"' in text, verbose)
+            self.assertEqual("effort requested=" in text, verbose)
+            if not verbose:
+                self.assertEqual(len(text.splitlines()), 1)
+
+    def test_terminal_color_never_reaches_json_report(self):
+        output = io.StringIO()
+        output.isatty = lambda: True
+        with tempfile.TemporaryDirectory() as folder:
+            report = Path(folder) / "report.json"
+            with patch.dict(os.environ, {"TERM": "xterm"}, clear=True), \
+                    patch.object(codex, "codex_version", return_value="1.0.0"), \
+                    patch.object(codex, "probe_codex", return_value=good_result()), \
+                    contextlib.redirect_stdout(output):
+                self.assertEqual(codex.main(["-m", MODEL, "--via-codex", "--json-out", str(report)]), 0)
+            text = report.read_text()
+            self.assertNotIn("\033", text)
+            self.assertNotIn("\\u001b", text)
+            self.assertEqual(json.loads(text)["results"][0]["verdict"], "same")
+        self.assertIn("\033[32m", output.getvalue())
+
+    def test_failed_request_keeps_error_on_stderr(self):
+        result = good_result()
+        result["error"] = "transport_error"
+        with patch.object(codex, "codex_version", return_value="1.0.0"), \
+                patch.object(codex, "probe_codex", return_value=result), \
+                contextlib.redirect_stdout(io.StringIO()) as output, \
+                contextlib.redirect_stderr(io.StringIO()) as errors:
+            self.assertEqual(codex.main(["-m", MODEL, "--via-codex"]), 2)
+        self.assertIn("transport_error", errors.getvalue())
+        self.assertNotIn("transport_error", output.getvalue())
+
     def test_explicit_model_works_without_catalog_and_native_auth_not_loaded(self):
         with patch.object(codex, "load_models", return_value={}), patch.object(codex, "load_auth") as auth, \
                 patch.object(codex, "codex_version", return_value="1.0.0"), \
@@ -340,7 +381,8 @@ class CodexCLITests(unittest.TestCase):
         with patch.object(codex, "load_models", return_value={MODEL: {"efforts": ["low"]}}) as catalog, \
                 patch.object(codex, "load_auth", return_value=auth), \
                 patch.object(codex, "codex_version", return_value="1.0.0"), \
-                patch.object(codex, "probe_http", return_value=result) as probe, contextlib.redirect_stdout(io.StringIO()):
+                patch.object(codex, "probe_http", return_value=result) as probe, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             status = codex.main(["-m", MODEL, "--effort", "high"])
         self.assertEqual(status, 2)
         catalog.assert_not_called()

@@ -12,6 +12,36 @@ from am_i_nerfed import cli, reports
 
 
 class PublicReportTests(unittest.TestCase):
+    def test_backend_identity_survives_exports_and_legacy_reports(self):
+        records = [reports.row("codex", "gpt-example", ["gpt-example"], ["gpt-example"],
+                               "MATCH", evidence=evidence, complete=True)
+                   for evidence in ("cli-trace", "upstream-http")]
+        data = reports.normalize({"schema_version": 1, "records": records})
+        self.assertEqual([r["backend"] for r in data["records"]], ["codex-cli", "codex-http"])
+        for form in ("json", "markdown", "svg"):
+            output = reports.render(data, form).lower()
+            self.assertIn("codex-cli", output)
+            self.assertIn("codex-http", output)
+            self.assertNotIn("\x1b", output)
+        # An absent backend in an old report is inferred from its evidence type.
+        for record in records:
+            record.pop("backend")
+        again = reports.normalize({"schema_version": 1, "records": records})
+        self.assertEqual([r["backend"] for r in again["records"]], ["codex-cli", "codex-http"])
+
+    def test_backend_fields_are_allowlisted_and_direct_control_is_named(self):
+        data = reports.demo()
+        data["records"][0]["backend"] = "private@example.com"
+        data["records"][0]["direct_control"] = {"backend": "secret", "reported_models": ["claude-sonnet-example"],
+                                                "agrees": True, "complete": True}
+        normalized = reports.normalize(data)
+        self.assertEqual(normalized["records"][0]["backend"], "unknown")
+        self.assertEqual(normalized["records"][0]["direct_control"]["backend"], "claude-direct")
+        for form in ("json", "markdown", "svg"):
+            output = reports.render(normalized, form)
+            self.assertNotIn("private@example.com", output)
+            self.assertNotIn("secret", output)
+
     def test_private_fields_never_exported(self):
         raw = {"claude_version": "2.1.0", "email": "private@example.com", "token": "secret",
                "results": [{"requested": "haiku", "verdict": "MATCH", "captures": [{
@@ -120,6 +150,34 @@ class PublicReportTests(unittest.TestCase):
         data["records"][0]["direct_control"]["complete"] = False
         self.assertIn("UNKNOWN: claude-other", reports.markdown(data))
 
+    def test_successful_control_cannot_claim_difference_when_proxy_failed(self):
+        data = reports.demo()
+        data["records"][0].update(complete=False, reported_models=[])
+        data["records"][0]["direct_control"] = {"reported_models": ["claude-other"], "agrees": False, "complete": True}
+        normalized = reports.normalize(data)
+        self.assertTrue(normalized["records"][0]["direct_control"]["complete"])
+        for fmt in ("markdown", "svg"):
+            output = reports.render(normalized, fmt)
+            self.assertIn("UNKNOWN: claude-other", output)
+            self.assertNotIn("DIFFERS", output)
+
+    def test_direct_internal_route_change_survives_agreeing_responses(self):
+        raw = {"claude_version": "fixture", "results": [{"requested": "sonnet", "verdict": "MATCH",
+               "captures": [{"is_probe_prompt": True, "http_status": 200, "complete": True,
+                             "request": {"model": "claude-example"}, "response_models": ["claude-example"]}],
+               "direct_control_agrees": True, "direct_control": {
+                   "verdict": "DIRECT_METADATA_DIFFERENT", "cli_exit_code": 0,
+                   "cli": {"result_is_error": False, "result_subtype": "success", "assistant_models": ["claude-example"]}}}]}
+        data = reports.normalize(raw)
+        control = data["records"][0]["direct_control"]
+        self.assertTrue(control["complete"])
+        self.assertTrue(control["agrees"])
+        self.assertEqual(control["route_status"], "CHANGED")
+        for fmt in ("markdown", "svg"):
+            self.assertIn("CHANGED: claude-example", reports.render(data, fmt))
+        again = reports.normalize(json.loads(reports.render(data, "json")))
+        self.assertEqual(again["records"][0]["direct_control"]["route_status"], "CHANGED")
+
     def test_codex_intermediate_wire_effort_survives(self):
         r = {"path": "codex", "requested": "gpt-example", "wire_model": "gpt-example",
              "wire_models": ["gpt-example"], "status": 200, "completion_seen": True,
@@ -132,6 +190,45 @@ class PublicReportTests(unittest.TestCase):
 
 
 class OfflineCliTests(unittest.TestCase):
+    def test_provider_wrapper_linux_default_and_explicit_output(self):
+        from am_i_nerfed.providers import codex
+        from am_i_nerfed import runtime
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp) / "home"
+            home.mkdir()
+            seen = []
+
+            def provider(argv):
+                path = Path(argv[argv.index("--json-out") + 1])
+                seen.append(path)
+                cli.private_write(path, reports.render(reports.demo(), "json"))
+                return 0
+
+            with patch.object(runtime.sys, "platform", "linux"), patch.object(Path, "home", return_value=home), \
+                    patch.object(codex, "main", side_effect=provider), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(["codex", "-m", "gpt-example"]), 0)
+                explicit = Path(tmp) / "chosen" / "run"
+                self.assertEqual(cli.main(["codex", "-m", "gpt-example", "--out", str(explicit)]), 0)
+            self.assertEqual(seen[0].parent.parent, home / ".am-i-nerfed")
+            self.assertEqual(seen[1].parent, explicit)
+            self.assertEqual((home / ".am-i-nerfed").stat().st_mode & 0o777, 0o700)
+
+    def test_scan_quiet_wrapper_preserves_preflight_error_without_duplicate_logs(self):
+        from am_i_nerfed.providers import codex
+        with tempfile.TemporaryDirectory() as tmp:
+            stdout, stderr = io.StringIO(), io.StringIO()
+            def failed(argv):
+                print("internal diagnostics")
+                print("usage: verbose argument list", file=cli.sys.stderr)
+                print("error: subscription login required", file=cli.sys.stderr)
+                raise SystemExit(2)
+            with patch.object(codex, "main", side_effect=failed), contextlib.redirect_stdout(stdout), \
+                    contextlib.redirect_stderr(stderr), self.assertRaises(SystemExit) as status:
+                cli._probe("codex", ["--quiet", "-m", "gpt-example", "--out", str(Path(tmp) / "out")])
+            self.assertEqual(status.exception.code, 2)
+            self.assertEqual(stdout.getvalue(), "")
+            self.assertEqual(stderr.getvalue().strip(), "error: subscription login required")
+
     def test_demo_works_without_network_or_auth(self):
         with patch("socket.socket", side_effect=AssertionError("unexpected network")), patch.dict(os.environ, {}, clear=True):
             output = io.StringIO()

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "am-i-nerfed"
-version = "0.3.0"
+version = "0.4.0"
 description = "降智测试 · Trace observable model routing in Claude Code and Codex subscriptions."
 readme = "README.en.md"
 requires-python = ">=3.9"

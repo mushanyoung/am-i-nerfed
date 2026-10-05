@@ -1,6 +1,7 @@
 """Unified entry point for collectors and offline, allowlisted report export."""
 import argparse
-import datetime as dt
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -8,6 +9,7 @@ import sys
 
 from . import __version__
 from . import reports
+from .runtime import Console, default_output, private_mkdir
 
 
 def private_write(path, text):
@@ -24,29 +26,44 @@ def _probe(provider, argv):
     module = claude if provider == "claude" else codex
     if "--help" in argv or "-h" in argv:
         if provider == "codex":
-            print("Unified CLI output: --out DIRECTORY (default: runs/codex-TIMESTAMP).")
+            print("Unified CLI output: --out DIRECTORY (Linux default: ~/.am-i-nerfed/codex-TIMESTAMP; otherwise runs/).")
             print("The provider's --json-out option below is managed internally.\n")
         return module.main(argv)
     wrapper = argparse.ArgumentParser(prog="am-i-nerfed " + provider, add_help=False)
     wrapper.add_argument("--out", type=Path)
+    wrapper.add_argument("--quiet", action="store_true", help=argparse.SUPPRESS)
+    wrapper.add_argument("-v", "--verbose", action="store_true")
     opts, remaining = wrapper.parse_known_args(argv)
-    out = opts.out or Path("runs") / (provider + "-" + dt.datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
+    out = opts.out or default_output(provider)
+    console = Console(verbose=opts.verbose)
     if out.exists():
         raise ValueError("Output directory already exists; choose a new --out directory")
-    if provider == "claude":
-        status = module.main(remaining + ["--out", str(out)])
-    else:
-        if any(arg == "--json-out" or arg.startswith("--json-out=") for arg in remaining):
-            raise ValueError("Use --out DIRECTORY with am-i-nerfed; --json-out belongs to the provider API")
-        # Validate arguments/auth first where possible; this directory holds only probe evidence.
-        out.mkdir(mode=0o700, parents=True)
-        status = module.main(remaining + ["--json-out", str(out / "report.json")])
+    if any(arg == "--json-out" or arg.startswith("--json-out=") for arg in remaining):
+        raise ValueError("Use --out DIRECTORY with am-i-nerfed; --json-out belongs to the provider API")
+    if opts.verbose:
+        remaining.append("--verbose")
+    if provider == "codex":
+        private_mkdir(out)
+    provider_args = remaining + (["--out", str(out)] if provider == "claude" else ["--json-out", str(out / "report.json")])
+    captured_error = io.StringIO()
+    try:
+        with contextlib.ExitStack() as stack:
+            if opts.quiet:
+                stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+                stack.enter_context(contextlib.redirect_stderr(captured_error))
+            status = module.main(provider_args)
+    finally:
+        if opts.quiet and captured_error.getvalue().strip():
+            # Preserve a concise preflight/error reason without duplicating help,
+            # per-model diagnostics, or the scan's own result lines.
+            console.error(captured_error.getvalue().strip().splitlines()[-1])
     report_path = out / "report.json"
     if report_path.is_file():
         public = reports.load_reports([report_path])
         for format_name, filename in (("json", "share.json"), ("markdown", "share.md")):
             private_write(out / filename, reports.render(public, format_name))
-        print("Shareable summary:", out / "share.md")
+        if not opts.quiet:
+            console.info("Report: " + str(out / "share.md"))
     return status or 0
 
 
@@ -88,7 +105,7 @@ def main(argv=None):
             return _probe(args.command, argv[1:])
         return _offline(args.command, argv[1:])
     except KeyboardInterrupt:
-        print("Interrupted; completed local evidence is retained.", file=sys.stderr)
+        Console().warning("Interrupted; completed local evidence is retained.")
         return 130
     except (OSError, ValueError, KeyError, TypeError, AttributeError) as exc:
         # OSError messages include local paths but do not include response bodies.
@@ -99,5 +116,5 @@ def main(argv=None):
             message = "Malformed report or unsupported provider schema"
         else:
             message = str(exc)
-        print("am-i-nerfed:", message, file=sys.stderr)
+        Console().error("am-i-nerfed: " + message)
         return 1

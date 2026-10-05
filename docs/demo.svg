@@ -8,17 +8,17 @@
 <text x="48" y="126" fill="#a5aec5" font-size="20">Trace the model behind the answer.</text>
 <text x="1100" y="76" text-anchor="end" fill="#facc72" font-size="20">SYNTHETIC DEMO</text>
 <rect x="36" y="146" width="1128" height="78" rx="8" fill="#1c2134"/>
-<text x="54" y="171" fill="#a5aec5" font-size="15">CLAUDE / sonnet</text>
+<text x="54" y="171" fill="#a5aec5" font-size="15">CLAUDE-PROXY / sonnet</text>
 <text x="54" y="201" fill="#f4f5fa" font-size="20">claude-sonnet-example</text>
 <text x="1126" y="171" text-anchor="end" fill="#83f2c5" font-size="21">MATCH</text>
 <text x="1126" y="200" text-anchor="end" fill="#a5aec5" font-size="14">effort: NOT_REPORTED</text>
 <rect x="36" y="234" width="1128" height="78" rx="8" fill="#1c2134"/>
-<text x="54" y="259" fill="#a5aec5" font-size="15">CODEX / gpt-example-large</text>
+<text x="54" y="259" fill="#a5aec5" font-size="15">CODEX-CLI / gpt-example-large</text>
 <text x="54" y="289" fill="#f4f5fa" font-size="20">gpt-example-small</text>
 <text x="1126" y="259" text-anchor="end" fill="#facc72" font-size="21">CHANGED</text>
 <text x="1126" y="288" text-anchor="end" fill="#a5aec5" font-size="14">effort: MATCH</text>
 <rect x="36" y="322" width="1128" height="78" rx="8" fill="#1c2134"/>
-<text x="54" y="347" fill="#a5aec5" font-size="15">CODEX / gpt-example</text>
+<text x="54" y="347" fill="#a5aec5" font-size="15">CODEX-HTTP / gpt-example</text>
 <text x="54" y="377" fill="#f4f5fa" font-size="20">not reported</text>
 <text x="1126" y="347" text-anchor="end" fill="#a5aec5" font-size="21">UNKNOWN</text>
 <text x="1126" y="376" text-anchor="end" fill="#a5aec5" font-size="14">effort: NOT_REPORTED</text>
